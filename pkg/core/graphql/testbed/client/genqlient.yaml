@@ -1,0 +1,9 @@
+# Default genqlient config; for full documentation see:
+# https://github.com/Khan/genqlient/blob/main/docs/genqlient.yaml
+schema: ../server/schema.graphqls
+operations:
+  - notes.graphql
+generated: generated.go
+bindings:
+  Time:
+    type: time.Time

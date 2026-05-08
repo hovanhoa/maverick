@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "bmewburn.vscode-intelephense-client",
+    "eamodio.gitlens",
+    "golang.go",
+    "inferrinizzard.prettier-sql-vscode",
+  ]
+}

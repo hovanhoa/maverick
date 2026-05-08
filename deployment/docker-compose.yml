@@ -1,0 +1,83 @@
+name: go-ai-gateway
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gateway-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: gateway-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASS: ${REDIS_PASS}
+    # Generates an ACL file from $REDIS_PASS at startup, then exec's redis-server.
+    # `default` is disabled so the only login is the `redis` user, which is what
+    # pkg/driver/redis sends as the username when OYSTER_ENVIRONMENT=dev.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        umask 077
+        cat > /tmp/users.acl <<ACL
+        user default off
+        user redis on >$$REDIS_PASS ~* &* +@all
+        ACL
+        exec redis-server --aclfile /tmp/users.acl --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --user redis -a "$$REDIS_PASS" --no-auth-warning ping | grep -q PONG
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Run with: `docker compose --profile app up`
+  # Defaults to data-services-only so `go run ./cmd/api` from the host still
+  # works against the same Postgres/Redis.
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: gateway-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - app
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,100 @@
+"""
+ApplicationError represents an application-level error that occurred during request processing.
+"""
+type ApplicationError {
+  """
+  The error code indicating the type of application error that occurred.
+  """
+  code: ApplicationErrorCode!
+
+  """
+  A human-readable message describing the application error.
+  """
+  message: String!
+}
+
+"""
+ApplicationErrorCode enumerates the possible types of application errors.
+"""
+enum ApplicationErrorCode {
+  """
+  Indicates the requested resource was not found.
+  """
+  NOT_FOUND
+
+  """
+  Indicates the caller is not authorized to perform the requested operation.
+  """
+  UNAUTHORIZED
+
+  """
+  Indicates the caller provided invalid input.
+  """
+  BAD_REQUEST
+
+  """
+  Indicates the caller does not have permission to perform the requested operation.
+  """
+  FORBIDDEN
+}
+
+"""
+InternalServerError represents an internal server error that occurred during request processing.
+"""
+type InternalServerError {
+  """
+  A human-readable message describing the internal server error.
+  """
+  message: String!
+}
+
+"""
+InternalServerErrorCode enumerates the possible types of internal server errors.
+"""
+enum InternalServerErrorCode {
+  """
+  Indicates an unknown internal server error occurred.
+  """
+  UNKNOWN
+
+  """
+  Indicates the server timed out waiting for an action or request to complete.
+  """
+  SERVER_TIMED_OUT
+}
+
+"""
+ValidationError represents a validation error that occurred during input validation.
+"""
+type ValidationError {
+  """
+  The validation error code indicating the type of validation failure.
+  """
+  code: ValidationErrorCode!
+
+  """
+  An array of field paths indicating which fields failed validation.
+  For nested fields, each path segment is an element in the array.
+  """
+  field: [String!]!
+
+  """
+  A human-readable message describing the validation error.
+  """
+  message: String!
+}
+
+"""
+ValidationErrorCode enumerates the possible types of validation errors.
+"""
+enum ValidationErrorCode {
+  """
+  Indicates a required field was missing or empty.
+  """
+  REQUIRED
+
+  """
+  Indicates a field's value was invalid according to validation rules.
+  """
+  INVALID
+}

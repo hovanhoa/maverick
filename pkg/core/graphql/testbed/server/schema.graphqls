@@ -1,0 +1,24 @@
+scalar Time
+scalar Int64
+
+type Note {
+  id: ID!
+  title: String!
+  description: String!
+  createdAt: Time!
+}
+
+input CreateNoteRequest {
+  title: String!
+  description: String!
+}
+
+type Query {
+  notes: [Note!]!
+  note(id: ID!): Note
+}
+
+type Mutation {
+  createNote(req: CreateNoteRequest!): Note!
+  deleteNote(id: ID!): Note
+}

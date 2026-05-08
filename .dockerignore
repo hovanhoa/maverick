@@ -1,0 +1,30 @@
+.git
+.gitignore
+.vscode
+.cursor
+
+# Local env files (must be passed in via env_file or -e)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Build artifacts / binaries committed by accident
+/api
+/bin
+/dist
+/out
+
+# Editor / OS junk
+.DS_Store
+*.swp
+*.swo
+
+# Test/coverage artifacts
+*.test
+*.out
+coverage.txt
+
+# Docs and CI
+README.md
+docs/
+.github/

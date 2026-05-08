@@ -1,0 +1,43 @@
+# ---- Go ---------------------------------------------------------------------
+# Compiled binaries (top-level + common output dirs)
+/api
+/bin/
+/dist/
+/out/
+
+# Test / coverage / profiling artifacts
+*.test
+*.out
+*.prof
+coverage.txt
+coverage.html
+
+# Go workspace files
+go.work
+go.work.sum
+
+# ---- Environment & secrets --------------------------------------------------
+# Never commit real env files; the `.example` variants are tracked.
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# ---- Editor / OS --------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE caches (keep shared .vscode/settings.json, ignore user-local junk)
+.idea/
+*.iml
+.vscode/*.log
+
+# ---- Tooling ----------------------------------------------------------------
+# Air (live-reload) tmp dir, if used later
+tmp/
+
+# Local Docker volume mounts, if any are added later
+deployment/data/

@@ -1,0 +1,43 @@
+"""
+Account represents a user account in the system
+"""
+type Account {
+    """
+    Unique identifier for the account
+    """
+    id: ID!
+
+    """
+    Email of the account
+    """
+    email: String!
+
+    """
+    Username of the account
+    """
+    username: String!
+
+    """
+    Timestamp the account was created
+    """
+    createdAt: Time!
+
+    """
+    Timestamp the account was last updated
+    """
+    updatedAt: Time!
+}
+
+extend type Query {
+    """
+    Get an account by ID
+    """
+    account(id: ID!): Account
+}
+
+extend type Mutation {
+    """
+    Create a new account
+    """
+    createAccount(email: String!, username: String!): Account!
+}

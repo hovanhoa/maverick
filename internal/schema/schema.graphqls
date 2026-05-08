@@ -1,0 +1,125 @@
+"""
+Time represents a timestamp
+"""
+scalar Time
+
+"""
+Int64 represents a 64-bit integer
+"""
+scalar Int64
+
+"""
+Upload represents a file upload request
+"""
+scalar Upload
+
+"""
+Custom scalar for exact decimal values
+Maps to DECIMAL(14,10) in the database
+"""
+scalar Decimal
+
+"""
+Custom scalar for raw JSON values
+"""
+scalar JSON
+
+"""
+Custom scalar a type that can either be a string containing an integer or an integer.
+Empty strings are treated as zero.
+"""
+scalar StringInt
+
+"""
+goModel directive allows specifying Go model types for GraphQL types
+"""
+directive @goModel(
+  """
+  Single Go model type
+  """
+  model: String
+  """
+  Multiple Go model types
+  """
+  models: [String!]
+  """
+  Force code generation even if type exists
+  """
+  forceGenerate: Boolean
+) on OBJECT | INPUT_OBJECT | SCALAR | ENUM | INTERFACE | UNION
+
+"""
+goEnum directive allows specifying custom Go enum values for GraphQL enum values
+"""
+directive @goEnum(
+  """
+  The Go enum value to use for this enum value
+  """
+  value: String
+) on ENUM_VALUE
+
+"""
+goField directive customizes Go field generation
+"""
+directive @goField(
+  """
+  Force resolver generation for this field
+  """
+  forceResolver: Boolean
+  """
+  Override field name in generated Go code
+  """
+  name: String
+  """
+  Mark field as omittable in generated Go code
+  """
+  omittable: Boolean
+  """
+  Override the Go type for the field
+  """
+  type: String
+) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
+
+"""
+goTag directive adds struct tags to generated Go fields
+"""
+directive @goTag(
+  """
+  Tag key
+  """
+  key: String!
+  """
+  Tag value
+  """
+  value: String
+) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
+
+"""
+goExtraField directive adds additional fields to generated Go structs
+"""
+directive @goExtraField(
+  """
+  Name of the extra field
+  """
+  name: String
+  """
+  Go type of the extra field
+  """
+  type: String!
+  """
+  Override struct tags for the extra field
+  """
+  overrideTags: String
+  """
+  Description of the extra field
+  """
+  description: String
+) on OBJECT | INPUT_OBJECT
+
+"""
+Root schema definition
+"""
+schema {
+  query: Query
+  mutation: Mutation
+}
