@@ -156,7 +156,7 @@ type __GetNoteByIdInput struct {
 // GetId returns __GetNoteByIdInput.Id, and is useful for accessing the field via an interface.
 func (v *__GetNoteByIdInput) GetId() string { return v.Id }
 
-// The query or mutation executed by CreateNote.
+// The mutation executed by CreateNote.
 const CreateNote_Operation = `
 mutation CreateNote ($input: CreateNoteRequest!) {
 	createNote(req: $input) {
@@ -172,7 +172,7 @@ func CreateNote(
 	ctx_ context.Context,
 	client_ graphql.Client,
 	input CreateNoteRequest,
-) (*CreateNoteResponse, error) {
+) (data_ *CreateNoteResponse, err_ error) {
 	req_ := &graphql.Request{
 		OpName: "CreateNote",
 		Query:  CreateNote_Operation,
@@ -180,10 +180,9 @@ func CreateNote(
 			Input: input,
 		},
 	}
-	var err_ error
 
-	var data_ CreateNoteResponse
-	resp_ := &graphql.Response{Data: &data_}
+	data_ = &CreateNoteResponse{}
+	resp_ := &graphql.Response{Data: data_}
 
 	err_ = client_.MakeRequest(
 		ctx_,
@@ -191,10 +190,10 @@ func CreateNote(
 		resp_,
 	)
 
-	return &data_, err_
+	return data_, err_
 }
 
-// The query or mutation executed by DeleteNoteById.
+// The mutation executed by DeleteNoteById.
 const DeleteNoteById_Operation = `
 mutation DeleteNoteById ($id: ID!) {
 	deleteNote(id: $id) {
@@ -210,7 +209,7 @@ func DeleteNoteById(
 	ctx_ context.Context,
 	client_ graphql.Client,
 	id string,
-) (*DeleteNoteByIdResponse, error) {
+) (data_ *DeleteNoteByIdResponse, err_ error) {
 	req_ := &graphql.Request{
 		OpName: "DeleteNoteById",
 		Query:  DeleteNoteById_Operation,
@@ -218,10 +217,9 @@ func DeleteNoteById(
 			Id: id,
 		},
 	}
-	var err_ error
 
-	var data_ DeleteNoteByIdResponse
-	resp_ := &graphql.Response{Data: &data_}
+	data_ = &DeleteNoteByIdResponse{}
+	resp_ := &graphql.Response{Data: data_}
 
 	err_ = client_.MakeRequest(
 		ctx_,
@@ -229,10 +227,10 @@ func DeleteNoteById(
 		resp_,
 	)
 
-	return &data_, err_
+	return data_, err_
 }
 
-// The query or mutation executed by GetNoteById.
+// The query executed by GetNoteById.
 const GetNoteById_Operation = `
 query GetNoteById ($id: ID!) {
 	note(id: $id) {
@@ -248,7 +246,7 @@ func GetNoteById(
 	ctx_ context.Context,
 	client_ graphql.Client,
 	id string,
-) (*GetNoteByIdResponse, error) {
+) (data_ *GetNoteByIdResponse, err_ error) {
 	req_ := &graphql.Request{
 		OpName: "GetNoteById",
 		Query:  GetNoteById_Operation,
@@ -256,10 +254,9 @@ func GetNoteById(
 			Id: id,
 		},
 	}
-	var err_ error
 
-	var data_ GetNoteByIdResponse
-	resp_ := &graphql.Response{Data: &data_}
+	data_ = &GetNoteByIdResponse{}
+	resp_ := &graphql.Response{Data: data_}
 
 	err_ = client_.MakeRequest(
 		ctx_,
@@ -267,10 +264,10 @@ func GetNoteById(
 		resp_,
 	)
 
-	return &data_, err_
+	return data_, err_
 }
 
-// The query or mutation executed by GetNotes.
+// The query executed by GetNotes.
 const GetNotes_Operation = `
 query GetNotes {
 	notes {
@@ -285,15 +282,14 @@ query GetNotes {
 func GetNotes(
 	ctx_ context.Context,
 	client_ graphql.Client,
-) (*GetNotesResponse, error) {
+) (data_ *GetNotesResponse, err_ error) {
 	req_ := &graphql.Request{
 		OpName: "GetNotes",
 		Query:  GetNotes_Operation,
 	}
-	var err_ error
 
-	var data_ GetNotesResponse
-	resp_ := &graphql.Response{Data: &data_}
+	data_ = &GetNotesResponse{}
+	resp_ := &graphql.Response{Data: data_}
 
 	err_ = client_.MakeRequest(
 		ctx_,
@@ -301,5 +297,5 @@ func GetNotes(
 		resp_,
 	)
 
-	return &data_, err_
+	return data_, err_
 }

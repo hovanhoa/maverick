@@ -55,7 +55,7 @@ func (ec *executionContext) _ApplicationError_code(ctx context.Context, field gr
 	}
 	res := resTmp.(model.ApplicationErrorCode)
 	fc.Result = res
-	return ec.marshalNApplicationErrorCode2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋmodelᚐApplicationErrorCode(ctx, field.Selections, res)
+	return ec.marshalNApplicationErrorCode2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋmodelᚐApplicationErrorCode(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_ApplicationError_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -187,7 +187,7 @@ func (ec *executionContext) _ValidationError_code(ctx context.Context, field gra
 	}
 	res := resTmp.(model.ValidationErrorCode)
 	fc.Result = res
-	return ec.marshalNValidationErrorCode2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋmodelᚐValidationErrorCode(ctx, field.Selections, res)
+	return ec.marshalNValidationErrorCode2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋmodelᚐValidationErrorCode(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_ValidationError_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -439,23 +439,23 @@ func (ec *executionContext) _ValidationError(ctx context.Context, sel ast.Select
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) unmarshalNApplicationErrorCode2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋmodelᚐApplicationErrorCode(ctx context.Context, v any) (model.ApplicationErrorCode, error) {
+func (ec *executionContext) unmarshalNApplicationErrorCode2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋmodelᚐApplicationErrorCode(ctx context.Context, v any) (model.ApplicationErrorCode, error) {
 	var res model.ApplicationErrorCode
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApplicationErrorCode2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋmodelᚐApplicationErrorCode(ctx context.Context, sel ast.SelectionSet, v model.ApplicationErrorCode) graphql.Marshaler {
+func (ec *executionContext) marshalNApplicationErrorCode2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋmodelᚐApplicationErrorCode(ctx context.Context, sel ast.SelectionSet, v model.ApplicationErrorCode) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) unmarshalNValidationErrorCode2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋmodelᚐValidationErrorCode(ctx context.Context, v any) (model.ValidationErrorCode, error) {
+func (ec *executionContext) unmarshalNValidationErrorCode2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋmodelᚐValidationErrorCode(ctx context.Context, v any) (model.ValidationErrorCode, error) {
 	var res model.ValidationErrorCode
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNValidationErrorCode2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋmodelᚐValidationErrorCode(ctx context.Context, sel ast.SelectionSet, v model.ValidationErrorCode) graphql.Marshaler {
+func (ec *executionContext) marshalNValidationErrorCode2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋmodelᚐValidationErrorCode(ctx context.Context, sel ast.SelectionSet, v model.ValidationErrorCode) graphql.Marshaler {
 	return v
 }
 
