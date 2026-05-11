@@ -26,7 +26,8 @@ jobs:
           go-version-file: go.mod
 
       - name: Format
-        run: test -z "$(gofmt -l -s .)" || (echo "go fmt failed; run: go fmt ./..." && gofmt -l -s . && exit 1)
+        run: |
+          test -z "$(gofmt -l -s .)" || (echo "go fmt failed; run: go fmt ./..." && gofmt -l -s . && exit 1)
 
       - name: Vet
         run: go vet ./...
