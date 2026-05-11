@@ -14,8 +14,22 @@ type Account struct {
 	Email string `json:"email"`
 	// Username of the account
 	Username string `json:"username"`
+	// Team this account belongs to, if any
+	TeamID *string `json:"teamId,omitempty"`
 	// Timestamp the account was created
 	CreatedAt time.Time `json:"createdAt"`
 	// Timestamp the account was last updated
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// Team represents a team in the system
+type Team struct {
+	// Unique identifier for the team
+	ID string `json:"id"`
+	// Display name of the team
+	Name string `json:"name"`
+	// Timestamp the team was created
+	CreatedAt time.Time `json:"createdAt"`
+	// Timestamp the team was last updated
 	UpdatedAt time.Time `json:"updatedAt"`
 }

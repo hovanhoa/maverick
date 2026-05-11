@@ -12,13 +12,13 @@ import (
 )
 
 // CreateAccount is the resolver for the createAccount field.
-func (r *mutationResolver) CreateAccount(ctx context.Context, email string, username string) (*model.Account, error) {
-	return r.createAccount(ctx, email, username)
+func (r *mutationResolver) CreateAccount(ctx context.Context, email string, username string, teamID *string) (*model.Account, error) {
+	return r.createAccount(ctx, email, username, teamID)
 }
 
 // UpdateAccount is the resolver for the updateAccount field.
-func (r *mutationResolver) UpdateAccount(ctx context.Context, id string, email *string, username *string) (*model.Account, error) {
-	return r.updateAccount(ctx, id, email, username)
+func (r *mutationResolver) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool) (*model.Account, error) {
+	return r.updateAccount(ctx, id, email, username, teamID, clearTeamID)
 }
 
 // DeleteAccount is the resolver for the deleteAccount field.

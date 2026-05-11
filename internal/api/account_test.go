@@ -25,7 +25,7 @@ func TestAccountResolver_CRUD(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	created, err := mr.CreateAccount(ctx, "api-crud@example.com", "apicrud")
+	created, err := mr.CreateAccount(ctx, "api-crud@example.com", "apicrud", nil)
 	require.NoError(t, err)
 	require.NotNil(t, created)
 	require.NotEmpty(t, created.ID)
@@ -40,7 +40,7 @@ func TestAccountResolver_CRUD(t *testing.T) {
 	assert.Equal(t, created.Email, fetched.Email)
 
 	newEmail := "api-updated@example.com"
-	updated, err := mr.UpdateAccount(ctx, created.ID, &newEmail, nil)
+	updated, err := mr.UpdateAccount(ctx, created.ID, &newEmail, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, newEmail, updated.Email)
@@ -62,7 +62,7 @@ func TestAccountResolver_CreateAccount_GeneratesID(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	created, err := mr.CreateAccount(ctx, "api-auto@example.com", "apiauto")
+	created, err := mr.CreateAccount(ctx, "api-auto@example.com", "apiauto", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.ID)
 	assert.True(t, strings.HasPrefix(created.ID, "account_"))
@@ -99,9 +99,9 @@ func TestAccountResolver_UpdateAccount_ValidationError(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	_, err := mr.UpdateAccount(ctx, "any_id", nil, nil)
+	_, err := mr.UpdateAccount(ctx, "any_id", nil, nil, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one of email or username")
+	assert.Contains(t, err.Error(), "at least one of email, username, teamId, or clearTeamId")
 }
 
 // TestResolver_createAccount_getAccount_updateAccount_deleteAccount covers the thin helpers on *Resolver.
@@ -110,7 +110,7 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 
 	r, ctx := testResolver(t)
 
-	acc, err := r.createAccount(ctx, "helper@example.com", "helperuser")
+	acc, err := r.createAccount(ctx, "helper@example.com", "helperuser", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 
@@ -120,7 +120,7 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 	assert.Equal(t, acc.ID, got.ID)
 
 	email := "helper2@example.com"
-	upd, err := r.updateAccount(ctx, acc.ID, &email, nil)
+	upd, err := r.updateAccount(ctx, acc.ID, &email, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, upd)
 	assert.Equal(t, email, upd.Email)

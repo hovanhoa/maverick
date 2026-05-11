@@ -182,6 +182,11 @@ type Account {
     username: String!
 
     """
+    Team this account belongs to, if any
+    """
+    teamId: ID
+
+    """
     Timestamp the account was created
     """
     createdAt: Time!
@@ -203,12 +208,12 @@ extend type Mutation {
     """
     Create a new account
     """
-    createAccount(email: String!, username: String!): Account!
+    createAccount(email: String!, username: String!, teamId: ID): Account!
 
     """
-    Update an existing account. Provide at least one of email or username.
+    Update an existing account. Provide at least one of email, username, teamId, or clearTeamId.
     """
-    updateAccount(id: ID!, email: String, username: String): Account!
+    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean): Account!
 
     """
     Delete an account by ID. Returns true if a row was removed.
@@ -340,6 +345,55 @@ Root schema definition
 schema {
   query: Query
   mutation: Mutation
+}
+`, BuiltIn: false},
+	{Name: "../../schema/team.graphqls", Input: `"""
+Team represents a team in the system
+"""
+type Team {
+    """
+    Unique identifier for the team
+    """
+    id: ID!
+
+    """
+    Display name of the team
+    """
+    name: String!
+
+    """
+    Timestamp the team was created
+    """
+    createdAt: Time!
+
+    """
+    Timestamp the team was last updated
+    """
+    updatedAt: Time!
+}
+
+extend type Query {
+    """
+    Get a team by ID
+    """
+    team(id: ID!): Team
+}
+
+extend type Mutation {
+    """
+    Create a new team
+    """
+    createTeam(name: String!): Team!
+
+    """
+    Update an existing team
+    """
+    updateTeam(id: ID!, name: String!): Team!
+
+    """
+    Delete a team by ID. Returns true if a row was removed.
+    """
+    deleteTeam(id: ID!): Boolean!
 }
 `, BuiltIn: false},
 }

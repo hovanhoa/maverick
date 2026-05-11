@@ -18,6 +18,11 @@ type Account {
     username: String!
 
     """
+    Team this account belongs to, if any
+    """
+    teamId: ID
+
+    """
     Timestamp the account was created
     """
     createdAt: Time!
@@ -39,12 +44,12 @@ extend type Mutation {
     """
     Create a new account
     """
-    createAccount(email: String!, username: String!): Account!
+    createAccount(email: String!, username: String!, teamId: ID): Account!
 
     """
-    Update an existing account. Provide at least one of email or username.
+    Update an existing account. Provide at least one of email, username, teamId, or clearTeamId.
     """
-    updateAccount(id: ID!, email: String, username: String): Account!
+    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean): Account!
 
     """
     Delete an account by ID. Returns true if a row was removed.

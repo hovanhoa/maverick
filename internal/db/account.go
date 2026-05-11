@@ -17,6 +17,16 @@ func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (
 		account.ID = encoding.NewRandomIdentifier("account")
 	}
 
+	if account.TeamID != nil && *account.TeamID != "" {
+		team, err := db.GetTeamByID(ctx, *account.TeamID)
+		if err != nil {
+			return nil, err
+		}
+		if team == nil {
+			return nil, errors.New("team not found")
+		}
+	}
+
 	now := time.Now().UTC()
 	account.CreatedAt = now
 	account.UpdatedAt = now
@@ -28,7 +38,7 @@ func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (
 
 	query, args, err := db.GetSQLClient().Builder().
 		Insert("account").
-		Columns("id", "data", "created_at", "updated_at").
+		Columns("id", "account", "created_at", "updated_at").
 		Values(account.ID, payload, account.CreatedAt, account.UpdatedAt).
 		ToSql()
 	if err != nil {
@@ -42,10 +52,16 @@ func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (
 	return account, nil
 }
 
-// UpdateAccount updates an account's email and/or username. At least one of email or username must be non-nil.
-func (db *Database) UpdateAccount(ctx context.Context, id string, email *string, username *string) (*model.Account, error) {
-	if email == nil && username == nil {
-		return nil, errors.New("at least one of email or username must be provided")
+// UpdateAccount updates an account's email, username, and/or team assignment.
+// At least one of email, username, teamId, or clearTeamId must be provided for a meaningful update.
+func (db *Database) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool) (*model.Account, error) {
+	clear := clearTeamID != nil && *clearTeamID
+	hasTeamID := teamID != nil && *teamID != ""
+	if email == nil && username == nil && !hasTeamID && !clear {
+		return nil, errors.New("at least one of email, username, teamId, or clearTeamId must be provided")
+	}
+	if clear && hasTeamID {
+		return nil, errors.New("cannot set teamId and clearTeamId in the same request")
 	}
 
 	existing, err := db.GetAccountByID(ctx, id)
@@ -62,6 +78,19 @@ func (db *Database) UpdateAccount(ctx context.Context, id string, email *string,
 	if username != nil {
 		existing.Username = *username
 	}
+	if clear {
+		existing.TeamID = nil
+	} else if hasTeamID {
+		team, err := db.GetTeamByID(ctx, *teamID)
+		if err != nil {
+			return nil, err
+		}
+		if team == nil {
+			return nil, errors.New("team not found")
+		}
+		tid := *teamID
+		existing.TeamID = &tid
+	}
 
 	existing.UpdatedAt = time.Now().UTC()
 
@@ -72,7 +101,7 @@ func (db *Database) UpdateAccount(ctx context.Context, id string, email *string,
 
 	query, args, err := db.GetSQLClient().Builder().
 		Update("account").
-		Set("data", payload).
+		Set("account", payload).
 		Set("updated_at", existing.UpdatedAt).
 		Where(sq.Eq{"id": id}).
 		ToSql()
@@ -143,7 +172,7 @@ func (db *Database) GetAccount(ctx context.Context, predicate func(stmt sq.Selec
 func (db *Database) GetAccounts(ctx context.Context, predicate func(stmt sq.SelectBuilder) sq.SelectBuilder) ([]model.Account, error) {
 	query, args, _ := predicate(
 		db.sqlClient.Builder().
-			Select("data").
+			Select("account").
 			From("account"),
 	).ToSql()
 
