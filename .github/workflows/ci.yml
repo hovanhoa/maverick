@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, synchronize]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-lint:
+    name: Lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+
+      - name: Format
+        run: test -z "$(gofmt -l -s .)" || (echo "go fmt failed; run: go fmt ./..." && gofmt -l -s . && exit 1)
+
+      - name: Vet
+        run: go vet ./...
+
+  go-test:
+    name: Test (Go)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_INITDB_ARGS: >-
+            -c max_connections=200
+            -c shared_buffers=512MB
+            -c work_mem=16MB
+            -c fsync=off
+            -c synchronous_commit=off
+            -c full_page_writes=off
+            -c max_wal_size=2GB
+            -c checkpoint_timeout=30min
+            -c autovacuum=off
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 25
+        ports:
+          - 54320:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
