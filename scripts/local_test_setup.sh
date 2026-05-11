@@ -1,6 +1,6 @@
 #! /bin/bash
 
-CONTAINER_NAME="oyster-test-pg"
+CONTAINER_NAME="llmgateway-test-pg"
 
 function has_docker_container() {
   docker ps --all --filter name=$CONTAINER_NAME --format '{{.Names}}' | grep -q $CONTAINER_NAME
