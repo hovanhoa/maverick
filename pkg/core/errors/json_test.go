@@ -16,7 +16,7 @@ func TestFrameMarshalText(t *testing.T) {
 		want string
 	}{{
 		initpc,
-		`^github.com/hovanhoa/llmgateway/pkg/core/errors\.init(\.ializers)? .+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:\d+$`,
+		`^github.com/hovanhoa/llmgateway/pkg/core/errors\.init(\.ializers)? .+/pkg/core/errors/stack_test.go:\d+$`,
 	}, {
 		0,
 		`^unknown$`,
@@ -35,7 +35,7 @@ func TestFrameMarshalJSON(t *testing.T) {
 		want string
 	}{{
 		initpc,
-		`^"github\.com/hovanhoa/llmgateway/pkg/core/errors\.init(\.ializers)? .+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:\d+"$`,
+		`^"github\.com/hovanhoa/llmgateway/pkg/core/errors\.init(\.ializers)? .+/pkg/core/errors/stack_test.go:\d+"$`,
 	}, {
 		0,
 		`^"unknown"$`,

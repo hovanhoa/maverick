@@ -57,6 +57,7 @@ build:
 	go build -o bin/$(APP_NAME) $(API_CMD)
 
 run: env-check
+	clear
 	@set -a; source "$(ENV_FILE)"; set +a; go run $(API_CMD)
 
 generate: generate-graphql generate-openapi

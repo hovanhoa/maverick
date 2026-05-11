@@ -311,7 +311,7 @@ func (ec *executionContext) field_Mutation_createNote_argsReq(
 
 	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("req"))
 	if tmp, ok := rawArgs["req"]; ok {
-		return ec.unmarshalNCreateNoteRequest2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐCreateNoteRequest(ctx, tmp)
+		return ec.unmarshalNCreateNoteRequest2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐCreateNoteRequest(ctx, tmp)
 	}
 
 	var zeroVal model.CreateNoteRequest
@@ -550,7 +550,7 @@ func (ec *executionContext) _Mutation_createNote(ctx context.Context, field grap
 	}
 	res := resTmp.(model.Note)
 	fc.Result = res
-	return ec.marshalNNote2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, field.Selections, res)
+	return ec.marshalNNote2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Mutation_createNote(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -612,7 +612,7 @@ func (ec *executionContext) _Mutation_deleteNote(ctx context.Context, field grap
 	}
 	res := resTmp.(*model.Note)
 	fc.Result = res
-	return ec.marshalONote2ᚖgithubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, field.Selections, res)
+	return ec.marshalONote2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Mutation_deleteNote(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -853,7 +853,7 @@ func (ec *executionContext) _Query_notes(ctx context.Context, field graphql.Coll
 	}
 	res := resTmp.([]model.Note)
 	fc.Result = res
-	return ec.marshalNNote2ᚕgithubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNoteᚄ(ctx, field.Selections, res)
+	return ec.marshalNNote2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNoteᚄ(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Query_notes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -904,7 +904,7 @@ func (ec *executionContext) _Query_note(ctx context.Context, field graphql.Colle
 	}
 	res := resTmp.(*model.Note)
 	fc.Result = res
-	return ec.marshalONote2ᚖgithubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, field.Selections, res)
+	return ec.marshalONote2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Query_note(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -3614,7 +3614,7 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) unmarshalNCreateNoteRequest2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐCreateNoteRequest(ctx context.Context, v any) (model.CreateNoteRequest, error) {
+func (ec *executionContext) unmarshalNCreateNoteRequest2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐCreateNoteRequest(ctx context.Context, v any) (model.CreateNoteRequest, error) {
 	res, err := ec.unmarshalInputCreateNoteRequest(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -3635,11 +3635,11 @@ func (ec *executionContext) marshalNID2string(ctx context.Context, sel ast.Selec
 	return res
 }
 
-func (ec *executionContext) marshalNNote2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx context.Context, sel ast.SelectionSet, v model.Note) graphql.Marshaler {
+func (ec *executionContext) marshalNNote2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx context.Context, sel ast.SelectionSet, v model.Note) graphql.Marshaler {
 	return ec._Note(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNNote2ᚕgithubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNoteᚄ(ctx context.Context, sel ast.SelectionSet, v []model.Note) graphql.Marshaler {
+func (ec *executionContext) marshalNNote2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNoteᚄ(ctx context.Context, sel ast.SelectionSet, v []model.Note) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -3663,7 +3663,7 @@ func (ec *executionContext) marshalNNote2ᚕgithubᚗcomᚋoysterincᚋgocodeᚋ
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNNote2githubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, sel, v[i])
+			ret[i] = ec.marshalNNote2githubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -3998,7 +3998,7 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
-func (ec *executionContext) marshalONote2ᚖgithubᚗcomᚋoysterincᚋgocodeᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx context.Context, sel ast.SelectionSet, v *model.Note) graphql.Marshaler {
+func (ec *executionContext) marshalONote2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋpkgᚋcoreᚋgraphqlᚋtestbedᚋserverᚋmodelᚐNote(ctx context.Context, sel ast.SelectionSet, v *model.Note) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

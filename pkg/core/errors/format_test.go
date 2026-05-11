@@ -31,7 +31,7 @@ func TestFormatNew(t *testing.T) {
 		"%+v",
 		"error\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatNew\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:30\n",
+			"\t.+/pkg/core/errors/format_test.go:30\n",
 	}, {
 		New("error"),
 		"%q",
@@ -62,7 +62,7 @@ func TestFormatWrap(t *testing.T) {
 		"%+v",
 		"error\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWrap\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:61",
+			"\t.+/pkg/core/errors/format_test.go:61",
 	}, {
 		Wrap(io.EOF, "error"),
 		"%s",
@@ -77,14 +77,14 @@ func TestFormatWrap(t *testing.T) {
 		"EOF\n" +
 			"error\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWrap\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:75",
+			"\t.+/pkg/core/errors/format_test.go:75",
 	}, {
 		Wrap(Wrap(io.EOF, "error1"), "error2"),
 		"%+v",
 		"EOF\n" +
 			"error1\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWrap\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:82\n",
+			"\t.+/pkg/core/errors/format_test.go:82\n",
 	}, {
 		Wrap(New("error with space"), "context"),
 		"%q",
@@ -116,7 +116,7 @@ func TestFormatWrapf(t *testing.T) {
 		"EOF\n" +
 			"error2\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWrapf\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:114",
+			"\t.+/pkg/core/errors/format_test.go:114",
 	}, {
 		Wrapf(New("error"), "error%d", 2),
 		"%s",
@@ -130,7 +130,7 @@ func TestFormatWrapf(t *testing.T) {
 		"%+v",
 		"error\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWrapf\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:129",
+			"\t.+/pkg/core/errors/format_test.go:129",
 	}}
 
 	for i, tt := range tests {
@@ -157,7 +157,7 @@ func TestFormatWithStack(t *testing.T) {
 		"%+v",
 		[]string{"EOF",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:156"},
+				"\t.+/pkg/core/errors/format_test.go:156"},
 	}, {
 		WithStack(New("error")),
 		"%s",
@@ -171,36 +171,36 @@ func TestFormatWithStack(t *testing.T) {
 		"%+v",
 		[]string{"error",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:170",
+				"\t.+/pkg/core/errors/format_test.go:170",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:170"},
+				"\t.+/pkg/core/errors/format_test.go:170"},
 	}, {
 		WithStack(WithStack(io.EOF)),
 		"%+v",
 		[]string{"EOF",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:178",
+				"\t.+/pkg/core/errors/format_test.go:178",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:178"},
+				"\t.+/pkg/core/errors/format_test.go:178"},
 	}, {
 		WithStack(WithStack(Wrapf(io.EOF, "message"))),
 		"%+v",
 		[]string{"EOF",
 			"message",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:186",
+				"\t.+/pkg/core/errors/format_test.go:186",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:186",
+				"\t.+/pkg/core/errors/format_test.go:186",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:186"},
+				"\t.+/pkg/core/errors/format_test.go:186"},
 	}, {
 		WithStack(New("error%d", 1)),
 		"%+v",
 		[]string{"error1",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:197",
+				"\t.+/pkg/core/errors/format_test.go:197",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithStack\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:197"},
+				"\t.+/pkg/core/errors/format_test.go:197"},
 	}}
 
 	for i, tt := range tests {
@@ -228,7 +228,7 @@ func TestFormatWithMessage(t *testing.T) {
 		[]string{
 			"error",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithMessage\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:226",
+				"\t.+/pkg/core/errors/format_test.go:226",
 			"error2"},
 	}, {
 		WithMessage(io.EOF, "addition1"),
@@ -255,13 +255,13 @@ func TestFormatWithMessage(t *testing.T) {
 		"%+v",
 		[]string{"EOF", "error1", "error2",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithMessage\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:254"},
+				"\t.+/pkg/core/errors/format_test.go:254"},
 	}, {
 		WithMessage(New("error%d", 1), "error2"),
 		"%+v",
 		[]string{"error1",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithMessage\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:260",
+				"\t.+/pkg/core/errors/format_test.go:260",
 			"error2"},
 	}, {
 		WithMessage(WithStack(io.EOF), "error"),
@@ -269,7 +269,7 @@ func TestFormatWithMessage(t *testing.T) {
 		[]string{
 			"EOF",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithMessage\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:267",
+				"\t.+/pkg/core/errors/format_test.go:267",
 			"error"},
 	}, {
 		WithMessage(Wrap(WithStack(io.EOF), "inside-error"), "outside-error"),
@@ -277,10 +277,10 @@ func TestFormatWithMessage(t *testing.T) {
 		[]string{
 			"EOF",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithMessage\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:275",
+				"\t.+/pkg/core/errors/format_test.go:275",
 			"inside-error",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWithMessage\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:275",
+				"\t.+/pkg/core/errors/format_test.go:275",
 			"outside-error"},
 	}}
 
@@ -298,11 +298,11 @@ func TestFormatGeneric(t *testing.T) {
 		{New("new-error"), []string{
 			"new-error",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatGeneric\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:298"},
+				"\t.+/pkg/core/errors/format_test.go:298"},
 		}, {New("errorf-error"), []string{
 			"errorf-error",
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatGeneric\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:302"},
+				"\t.+/pkg/core/errors/format_test.go:302"},
 		}, {errors.New("errors-new-error"), []string{
 			"errors-new-error"},
 		},
@@ -316,21 +316,21 @@ func TestFormatGeneric(t *testing.T) {
 			func(err error) error { return WithStack(err) },
 			[]string{
 				"github.com/hovanhoa/llmgateway/pkg/core/errors.(func·002|TestFormatGeneric.func2)\n\t" +
-					".+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:316",
+					".+/pkg/core/errors/format_test.go:316",
 			},
 		}, {
 			func(err error) error { return Wrap(err, "wrap-error") },
 			[]string{
 				"wrap-error",
 				"github.com/hovanhoa/llmgateway/pkg/core/errors.(func·003|TestFormatGeneric.func3)\n\t" +
-					".+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:322",
+					".+/pkg/core/errors/format_test.go:322",
 			},
 		}, {
 			func(err error) error { return Wrapf(err, "wrapf-error%d", 1) },
 			[]string{
 				"wrapf-error1",
 				"github.com/hovanhoa/llmgateway/pkg/core/errors.(func·004|TestFormatGeneric.func4)\n\t" +
-					".+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:329",
+					".+/pkg/core/errors/format_test.go:329",
 			},
 		},
 	}
@@ -358,9 +358,9 @@ func TestFormatWrappedNew(t *testing.T) {
 		"%+v",
 		"error\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.wrappedNew\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:347\n" +
+			"\t.+/pkg/core/errors/format_test.go:347\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestFormatWrappedNew\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/format_test.go:357",
+			"\t.+/pkg/core/errors/format_test.go:357",
 	}}
 
 	for i, tt := range tests {

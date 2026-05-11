@@ -37,7 +37,7 @@ func TestFrameFormat(t *testing.T) {
 		initpc,
 		"%+s",
 		"github.com/hovanhoa/llmgateway/pkg/core/errors.init\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go",
+			"\t.+/pkg/core/errors/stack_test.go",
 	}, {
 		0,
 		"%s",
@@ -84,7 +84,7 @@ func TestFrameFormat(t *testing.T) {
 		initpc,
 		"%+v",
 		"github.com/hovanhoa/llmgateway/pkg/core/errors.init\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:12",
+			"\t.+/pkg/core/errors/stack_test.go:12",
 	}, {
 		0,
 		"%v",
@@ -124,24 +124,24 @@ func TestStackTrace(t *testing.T) {
 	}{{
 		New("ooh"), []string{
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:125",
+				"\t.+/pkg/core/errors/stack_test.go:125",
 		},
 	}, {
 		Wrap(New("ooh"), "ahh"), []string{
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:130", // this is the stack of Wrap, not New
+				"\t.+/pkg/core/errors/stack_test.go:130", // this is the stack of Wrap, not New
 		},
 	}, {
 		Cause(Wrap(New("ooh"), "ahh")), []string{
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:135", // this is the stack of New
+				"\t.+/pkg/core/errors/stack_test.go:135", // this is the stack of New
 		},
 	}, {
 		func() error { return New("ooh") }(), []string{
 			`github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace.func1` +
-				"\n\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:140", // this is the stack of New
+				"\n\t.+/pkg/core/errors/stack_test.go:140", // this is the stack of New
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:140", // this is the stack of New's caller
+				"\t.+/pkg/core/errors/stack_test.go:140", // this is the stack of New's caller
 		},
 	}, {
 		Cause(func() error {
@@ -150,11 +150,11 @@ func TestStackTrace(t *testing.T) {
 			}()
 		}()), []string{
 			`github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace.TestStackTrace.func2.func3` +
-				"\n\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:149", // this is the stack of Errorf
+				"\n\t.+/pkg/core/errors/stack_test.go:149", // this is the stack of Errorf
 			`github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace.func2` +
-				"\n\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:150", // this is the stack of Errorf's caller
+				"\n\t.+/pkg/core/errors/stack_test.go:150", // this is the stack of Errorf's caller
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTrace\n" +
-				"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:151", // this is the stack of Errorf's caller's caller
+				"\t.+/pkg/core/errors/stack_test.go:151", // this is the stack of Errorf's caller's caller
 		},
 	}}
 	for i, tt := range tests {
@@ -228,9 +228,9 @@ func TestStackTraceFormat(t *testing.T) {
 		"%+v",
 		"\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.stackTrace\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:175\n" +
+			"\t.+/pkg/core/errors/stack_test.go:175\n" +
 			"github.com/hovanhoa/llmgateway/pkg/core/errors.TestStackTraceFormat\n" +
-			"\t.+/gocode(-[^/]+)?/pkg/core/errors/stack_test.go:227",
+			"\t.+/pkg/core/errors/stack_test.go:227",
 	}, {
 		stackTrace()[:2],
 		"%#v",

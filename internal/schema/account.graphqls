@@ -40,4 +40,14 @@ extend type Mutation {
     Create a new account
     """
     createAccount(email: String!, username: String!): Account!
+
+    """
+    Update an existing account. Provide at least one of email or username.
+    """
+    updateAccount(id: ID!, email: String, username: String): Account!
+
+    """
+    Delete an account by ID. Returns true if a row was removed.
+    """
+    deleteAccount(id: ID!): Boolean!
 }

@@ -16,6 +16,16 @@ func (r *mutationResolver) CreateAccount(ctx context.Context, email string, user
 	return r.createAccount(ctx, email, username)
 }
 
+// UpdateAccount is the resolver for the updateAccount field.
+func (r *mutationResolver) UpdateAccount(ctx context.Context, id string, email *string, username *string) (*model.Account, error) {
+	return r.updateAccount(ctx, id, email, username)
+}
+
+// DeleteAccount is the resolver for the deleteAccount field.
+func (r *mutationResolver) DeleteAccount(ctx context.Context, id string) (bool, error) {
+	return r.deleteAccount(ctx, id)
+}
+
 // Account is the resolver for the account field.
 func (r *queryResolver) Account(ctx context.Context, id string) (*model.Account, error) {
 	return r.getAccount(ctx, id)
