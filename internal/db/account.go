@@ -138,6 +138,63 @@ func (db *Database) DeleteAccount(ctx context.Context, id string) (bool, error) 
 	return tag.RowsAffected() > 0, nil
 }
 
+// accountTeamFilter restricts a query to accounts assigned to teamID. A nil or
+// empty teamID matches every account. The list and count halves of a paginated
+// query must share this so totalCount agrees with items.
+func accountTeamFilter(teamID *string) func(stmt sq.SelectBuilder) sq.SelectBuilder {
+	return func(stmt sq.SelectBuilder) sq.SelectBuilder {
+		if teamID != nil && *teamID != "" {
+			stmt = stmt.Where(sq.Expr("account->>'teamId' = ?", *teamID))
+		}
+		return stmt
+	}
+}
+
+// ListAccounts returns a page of accounts, most recently created first, along
+// with the total number of matching accounts ignoring limit and offset. When
+// teamID is non-nil only accounts assigned to that team are considered.
+func (db *Database) ListAccounts(ctx context.Context, teamID *string, limit int, offset int) ([]model.Account, int, error) {
+	filter := accountTeamFilter(teamID)
+
+	total, err := db.CountAccounts(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Nothing to fetch, and Postgres would happily scan for it anyway.
+	if offset >= total {
+		return nil, total, nil
+	}
+
+	accounts, err := db.GetAccounts(ctx, func(stmt sq.SelectBuilder) sq.SelectBuilder {
+		return filter(stmt).
+			OrderBy("created_at DESC", "id DESC").
+			Limit(uint64(limit)).
+			Offset(uint64(offset))
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return accounts, total, nil
+}
+
+// CountAccounts returns the number of accounts matching the given predicate.
+func (db *Database) CountAccounts(ctx context.Context, predicate func(stmt sq.SelectBuilder) sq.SelectBuilder) (int, error) {
+	query, args, _ := predicate(
+		db.sqlClient.Builder().
+			Select("COUNT(*)").
+			From("account"),
+	).ToSql()
+
+	var count int
+	if err := db.GetSQLClient().Runner().QueryRow(ctx, query, args...).Scan(&count); err != nil {
+		return 0, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+	}
+
+	return count, nil
+}
+
 // GetAccountByID returns an account by id. A nil account and nil error means not found.
 func (db *Database) GetAccountByID(ctx context.Context, id string) (*model.Account, error) {
 	return db.GetAccount(ctx, func(stmt sq.SelectBuilder) sq.SelectBuilder {

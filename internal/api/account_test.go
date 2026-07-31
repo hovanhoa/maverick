@@ -133,3 +133,86 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 	require.NoError(t, err)
 	assert.Nil(t, final)
 }
+
+func TestAccountResolver_Accounts(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	empty, err := qr.Accounts(ctx, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, empty)
+	assert.Empty(t, empty.Items)
+	assert.Zero(t, empty.TotalCount)
+
+	team, err := mr.CreateTeam(ctx, "resolver-accounts-team")
+	require.NoError(t, err)
+
+	_, err = mr.CreateAccount(ctx, "solo@example.com", "solo", nil)
+	require.NoError(t, err)
+	_, err = mr.CreateAccount(ctx, "member@example.com", "member", &team.ID)
+	require.NoError(t, err)
+
+	all, err := qr.Accounts(ctx, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, all.Items, 2)
+	assert.Equal(t, 2, all.TotalCount)
+	assert.False(t, all.HasNextPage)
+	assert.Equal(t, "member", all.Items[0].Username)
+	assert.Equal(t, "solo", all.Items[1].Username)
+
+	byTeam, err := qr.Accounts(ctx, &team.ID, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, byTeam.Items, 1)
+	assert.Equal(t, 1, byTeam.TotalCount, "totalCount must respect the team filter")
+	assert.Equal(t, "member", byTeam.Items[0].Username)
+}
+
+func TestAccountResolver_Accounts_Pagination(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	for _, name := range []string{"one", "two", "three"} {
+		_, err := mr.CreateAccount(ctx, name+"@example.com", name, nil)
+		require.NoError(t, err)
+	}
+
+	limit, offset := 2, 0
+	first, err := qr.Accounts(ctx, nil, &limit, &offset)
+	require.NoError(t, err)
+	require.Len(t, first.Items, 2)
+	assert.Equal(t, 3, first.TotalCount)
+	assert.True(t, first.HasNextPage)
+	assert.Equal(t, []string{"three", "two"}, []string{first.Items[0].Username, first.Items[1].Username})
+
+	offset = 2
+	last, err := qr.Accounts(ctx, nil, &limit, &offset)
+	require.NoError(t, err)
+	require.Len(t, last.Items, 1)
+	assert.False(t, last.HasNextPage)
+	assert.Equal(t, "one", last.Items[0].Username)
+}
+
+func TestAccountResolver_Accounts_ClampsLimit(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	_, err := mr.CreateAccount(ctx, "only@example.com", "only", nil)
+	require.NoError(t, err)
+
+	// An oversized limit is clamped to MaxPageLimit rather than rejected.
+	huge := MaxPageLimit * 10
+	page, err := qr.Accounts(ctx, nil, &huge, nil)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, 1, page.TotalCount)
+	assert.False(t, page.HasNextPage)
+}

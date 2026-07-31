@@ -99,6 +99,48 @@ func (db *Database) DeleteTeam(ctx context.Context, id string) (bool, error) {
 	return tag.RowsAffected() > 0, nil
 }
 
+// ListTeams returns a page of teams, most recently created first, along with the
+// total number of teams ignoring limit and offset.
+func (db *Database) ListTeams(ctx context.Context, limit int, offset int) ([]model.Team, int, error) {
+	total, err := db.CountTeams(ctx, noFilter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Nothing to fetch, and Postgres would happily scan for it anyway.
+	if offset >= total {
+		return nil, total, nil
+	}
+
+	teams, err := db.GetTeams(ctx, func(stmt sq.SelectBuilder) sq.SelectBuilder {
+		return stmt.
+			OrderBy("created_at DESC", "id DESC").
+			Limit(uint64(limit)).
+			Offset(uint64(offset))
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return teams, total, nil
+}
+
+// CountTeams returns the number of teams matching the given predicate.
+func (db *Database) CountTeams(ctx context.Context, predicate func(stmt sq.SelectBuilder) sq.SelectBuilder) (int, error) {
+	query, args, _ := predicate(
+		db.sqlClient.Builder().
+			Select("COUNT(*)").
+			From("team"),
+	).ToSql()
+
+	var count int
+	if err := db.GetSQLClient().Runner().QueryRow(ctx, query, args...).Scan(&count); err != nil {
+		return 0, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+	}
+
+	return count, nil
+}
+
 // GetTeamByID returns a team by id. A nil team and nil error means not found.
 func (db *Database) GetTeamByID(ctx context.Context, id string) (*model.Team, error) {
 	return db.GetTeam(ctx, func(stmt sq.SelectBuilder) sq.SelectBuilder {

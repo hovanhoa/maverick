@@ -197,7 +197,33 @@ type Account {
     updatedAt: Time!
 }
 
+"""
+AccountConnection is a single page of accounts
+"""
+type AccountConnection {
+    """
+    Accounts contained in this page
+    """
+    items: [Account!]!
+
+    """
+    Total number of accounts matching the query, ignoring pagination
+    """
+    totalCount: Int!
+
+    """
+    Whether a further page follows this one
+    """
+    hasNextPage: Boolean!
+}
+
 extend type Query {
+    """
+    List accounts, most recently created first, optionally filtered to a single
+    team. limit defaults to 20 and is capped at 100; offset defaults to 0.
+    """
+    accounts(teamId: ID, limit: Int, offset: Int): AccountConnection!
+
     """
     Get an account by ID
     """
@@ -372,7 +398,33 @@ type Team {
     updatedAt: Time!
 }
 
+"""
+TeamConnection is a single page of teams
+"""
+type TeamConnection {
+    """
+    Teams contained in this page
+    """
+    items: [Team!]!
+
+    """
+    Total number of teams matching the query, ignoring pagination
+    """
+    totalCount: Int!
+
+    """
+    Whether a further page follows this one
+    """
+    hasNextPage: Boolean!
+}
+
 extend type Query {
+    """
+    List teams, most recently created first. limit defaults to 20 and is capped
+    at 100; offset defaults to 0.
+    """
+    teams(limit: Int, offset: Int): TeamConnection!
+
     """
     Get a team by ID
     """

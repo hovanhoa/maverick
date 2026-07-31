@@ -68,6 +68,63 @@ func TestCreateTeam_GeneratesID(t *testing.T) {
 	assert.True(t, strings.HasPrefix(created.ID, "team_"))
 }
 
+func TestListTeams(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	empty, total, err := database.ListTeams(ctx, 20, 0)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+	assert.Zero(t, total)
+
+	for _, name := range []string{"first", "second", "third"} {
+		_, err := database.CreateTeam(ctx, &model.Team{ID: "team_list_" + name, Name: name})
+		require.NoError(t, err)
+	}
+
+	teams, total, err := database.ListTeams(ctx, 20, 0)
+	require.NoError(t, err)
+	require.Len(t, teams, 3)
+	assert.Equal(t, 3, total)
+
+	// Most recently created first.
+	assert.Equal(t, []string{"third", "second", "first"}, []string{teams[0].Name, teams[1].Name, teams[2].Name})
+}
+
+func TestListTeams_Paginates(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	for _, name := range []string{"first", "second", "third", "fourth", "fifth"} {
+		_, err := database.CreateTeam(ctx, &model.Team{ID: "team_page_" + name, Name: name})
+		require.NoError(t, err)
+	}
+
+	// Walk the whole set two at a time; totalCount stays constant across pages.
+	var seen []string
+	for offset := 0; offset < 6; offset += 2 {
+		page, total, err := database.ListTeams(ctx, 2, offset)
+		require.NoError(t, err)
+		assert.Equal(t, 5, total)
+
+		for _, team := range page {
+			seen = append(seen, team.Name)
+		}
+	}
+
+	assert.Equal(t, []string{"fifth", "fourth", "third", "second", "first"}, seen)
+
+	// An offset past the end yields no rows but still reports the true total.
+	none, total, err := database.ListTeams(ctx, 2, 99)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+	assert.Equal(t, 5, total)
+}
+
 func TestAccountWithTeamJSONB(t *testing.T) {
 	t.Parallel()
 

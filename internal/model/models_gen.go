@@ -22,6 +22,16 @@ type Account struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// AccountConnection is a single page of accounts
+type AccountConnection struct {
+	// Accounts contained in this page
+	Items []Account `json:"items"`
+	// Total number of accounts matching the query, ignoring pagination
+	TotalCount int `json:"totalCount"`
+	// Whether a further page follows this one
+	HasNextPage bool `json:"hasNextPage"`
+}
+
 // Team represents a team in the system
 type Team struct {
 	// Unique identifier for the team
@@ -32,4 +42,14 @@ type Team struct {
 	CreatedAt time.Time `json:"createdAt"`
 	// Timestamp the team was last updated
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// TeamConnection is a single page of teams
+type TeamConnection struct {
+	// Teams contained in this page
+	Items []Team `json:"items"`
+	// Total number of teams matching the query, ignoring pagination
+	TotalCount int `json:"totalCount"`
+	// Whether a further page follows this one
+	HasNextPage bool `json:"hasNextPage"`
 }

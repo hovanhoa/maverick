@@ -26,6 +26,11 @@ func (r *mutationResolver) DeleteAccount(ctx context.Context, id string) (bool, 
 	return r.deleteAccount(ctx, id)
 }
 
+// Accounts is the resolver for the accounts field.
+func (r *queryResolver) Accounts(ctx context.Context, teamID *string, limit *int, offset *int) (*model.AccountConnection, error) {
+	return r.listAccounts(ctx, teamID, limit, offset)
+}
+
 // Account is the resolver for the account field.
 func (r *queryResolver) Account(ctx context.Context, id string) (*model.Account, error) {
 	return r.getAccount(ctx, id)

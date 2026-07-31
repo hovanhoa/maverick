@@ -25,6 +25,11 @@ func (r *mutationResolver) DeleteTeam(ctx context.Context, id string) (bool, err
 	return r.deleteTeam(ctx, id)
 }
 
+// Teams is the resolver for the teams field.
+func (r *queryResolver) Teams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
+	return r.listTeams(ctx, limit, offset)
+}
+
 // Team is the resolver for the team field.
 func (r *queryResolver) Team(ctx context.Context, id string) (*model.Team, error) {
 	return r.getTeam(ctx, id)

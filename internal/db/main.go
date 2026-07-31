@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/hovanhoa/llmgateway/pkg/core/retries"
 	"github.com/hovanhoa/llmgateway/pkg/driver"
 )
@@ -18,6 +19,12 @@ const (
 	// applied.
 	NeverExpiry time.Duration = 0
 )
+
+// noFilter is a predicate that matches every row. It is useful for the count
+// half of a paginated list query when no filtering is applied.
+func noFilter(stmt sq.SelectBuilder) sq.SelectBuilder {
+	return stmt
+}
 
 // Database combines a SQL and key-value store, and implements
 // all sub-database types.

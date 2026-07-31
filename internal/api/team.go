@@ -11,6 +11,24 @@ func (r *Resolver) createTeam(ctx context.Context, name string) (*model.Team, er
 	return r.deps.Database.CreateTeam(ctx, team)
 }
 
+func (r *Resolver) listTeams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
+	resolvedLimit, resolvedOffset, err := resolvePage(limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	teams, total, err := r.deps.Database.ListTeams(ctx, resolvedLimit, resolvedOffset)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.TeamConnection{
+		Items:       teams,
+		TotalCount:  total,
+		HasNextPage: hasNextPage(resolvedOffset, len(teams), total),
+	}, nil
+}
+
 func (r *Resolver) getTeam(ctx context.Context, id string) (*model.Team, error) {
 	return r.deps.Database.GetTeamByID(ctx, id)
 }

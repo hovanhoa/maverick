@@ -23,7 +23,33 @@ type Team {
     updatedAt: Time!
 }
 
+"""
+TeamConnection is a single page of teams
+"""
+type TeamConnection {
+    """
+    Teams contained in this page
+    """
+    items: [Team!]!
+
+    """
+    Total number of teams matching the query, ignoring pagination
+    """
+    totalCount: Int!
+
+    """
+    Whether a further page follows this one
+    """
+    hasNextPage: Boolean!
+}
+
 extend type Query {
+    """
+    List teams, most recently created first. limit defaults to 20 and is capped
+    at 100; offset defaults to 0.
+    """
+    teams(limit: Int, offset: Int): TeamConnection!
+
     """
     Get a team by ID
     """

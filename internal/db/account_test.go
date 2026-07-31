@@ -176,3 +176,107 @@ func TestDeleteAccount_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+// TestListAccounts returns every account, newest first, and filters by team.
+func TestListAccounts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	empty, total, err := database.ListAccounts(ctx, nil, 20, 0)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+	assert.Zero(t, total)
+
+	team := &model.Team{ID: "team_list_accounts", Name: "Owners"}
+	_, err = database.CreateTeam(ctx, team)
+	require.NoError(t, err)
+
+	tid := team.ID
+	for _, tc := range []struct {
+		username string
+		teamID   *string
+	}{
+		{"unassigned", nil},
+		{"member_one", &tid},
+		{"member_two", &tid},
+	} {
+		_, err := database.CreateAccount(ctx, &model.Account{
+			ID:       "account_list_" + tc.username,
+			Email:    tc.username + "@example.com",
+			Username: tc.username,
+			TeamID:   tc.teamID,
+		})
+		require.NoError(t, err)
+	}
+
+	all, total, err := database.ListAccounts(ctx, nil, 20, 0)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.Equal(t, 3, total)
+
+	// Most recently created first.
+	assert.Equal(t, []string{"member_two", "member_one", "unassigned"}, []string{all[0].Username, all[1].Username, all[2].Username})
+
+	byTeam, total, err := database.ListAccounts(ctx, &tid, 20, 0)
+	require.NoError(t, err)
+	require.Len(t, byTeam, 2)
+	assert.Equal(t, 2, total)
+	for _, account := range byTeam {
+		require.NotNil(t, account.TeamID)
+		assert.Equal(t, tid, *account.TeamID)
+	}
+
+	other := "team_does_not_exist"
+	none, total, err := database.ListAccounts(ctx, &other, 20, 0)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+	assert.Zero(t, total)
+}
+
+// TestListAccounts_PaginatesWithinTeamFilter checks that totalCount reflects the
+// team filter rather than the whole table, so a paging client sees a consistent
+// count and page contents.
+func TestListAccounts_PaginatesWithinTeamFilter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team := &model.Team{ID: "team_page_accounts", Name: "Owners"}
+	_, err := database.CreateTeam(ctx, team)
+	require.NoError(t, err)
+	tid := team.ID
+
+	// Three accounts on the team, two outside it.
+	for _, name := range []string{"in_one", "in_two", "in_three"} {
+		_, err := database.CreateAccount(ctx, &model.Account{
+			ID: "account_page_" + name, Email: name + "@example.com", Username: name, TeamID: &tid,
+		})
+		require.NoError(t, err)
+	}
+	for _, name := range []string{"out_one", "out_two"} {
+		_, err := database.CreateAccount(ctx, &model.Account{
+			ID: "account_page_" + name, Email: name + "@example.com", Username: name,
+		})
+		require.NoError(t, err)
+	}
+
+	first, total, err := database.ListAccounts(ctx, &tid, 2, 0)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	assert.Equal(t, 3, total, "totalCount must count only the filtered team")
+	assert.Equal(t, []string{"in_three", "in_two"}, []string{first[0].Username, first[1].Username})
+
+	second, total, err := database.ListAccounts(ctx, &tid, 2, 2)
+	require.NoError(t, err)
+	require.Len(t, second, 1)
+	assert.Equal(t, 3, total)
+	assert.Equal(t, "in_one", second[0].Username)
+
+	// Unfiltered, the total covers every account.
+	_, total, err = database.ListAccounts(ctx, nil, 2, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 5, total)
+}

@@ -71,3 +71,85 @@ func TestAccountResolver_CreateWithTeam(t *testing.T) {
 	_, _ = mr.DeleteAccount(ctx, acc.ID)
 	_, _ = mr.DeleteTeam(ctx, team.ID)
 }
+
+func TestTeamResolver_Teams(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	empty, err := qr.Teams(ctx, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, empty)
+	assert.Empty(t, empty.Items)
+	assert.Zero(t, empty.TotalCount)
+	assert.False(t, empty.HasNextPage)
+
+	for _, name := range []string{"alpha", "beta"} {
+		_, err := mr.CreateTeam(ctx, name)
+		require.NoError(t, err)
+	}
+
+	teams, err := qr.Teams(ctx, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, teams.Items, 2)
+	assert.Equal(t, 2, teams.TotalCount)
+	assert.False(t, teams.HasNextPage)
+	assert.Equal(t, "beta", teams.Items[0].Name)
+	assert.Equal(t, "alpha", teams.Items[1].Name)
+}
+
+func TestTeamResolver_Teams_Pagination(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		_, err := mr.CreateTeam(ctx, name)
+		require.NoError(t, err)
+	}
+
+	limit, offset := 2, 0
+	first, err := qr.Teams(ctx, &limit, &offset)
+	require.NoError(t, err)
+	require.Len(t, first.Items, 2)
+	assert.Equal(t, 3, first.TotalCount)
+	assert.True(t, first.HasNextPage, "one team remains after this page")
+	assert.Equal(t, []string{"gamma", "beta"}, []string{first.Items[0].Name, first.Items[1].Name})
+
+	offset = 2
+	last, err := qr.Teams(ctx, &limit, &offset)
+	require.NoError(t, err)
+	require.Len(t, last.Items, 1)
+	assert.Equal(t, 3, last.TotalCount)
+	assert.False(t, last.HasNextPage, "final page must not advertise another")
+	assert.Equal(t, "alpha", last.Items[0].Name)
+
+	// Past the end: empty page, true total, no next page.
+	offset = 99
+	beyond, err := qr.Teams(ctx, &limit, &offset)
+	require.NoError(t, err)
+	assert.Empty(t, beyond.Items)
+	assert.Equal(t, 3, beyond.TotalCount)
+	assert.False(t, beyond.HasNextPage)
+}
+
+func TestTeamResolver_Teams_RejectsBadBounds(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	qr := &queryResolver{r}
+
+	zero := 0
+	_, err := qr.Teams(ctx, &zero, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "limit must be greater than 0")
+
+	negative := -1
+	_, err = qr.Teams(ctx, nil, &negative)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "offset must not be negative")
+}
