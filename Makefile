@@ -2,12 +2,17 @@ SHELL := /bin/bash
 
 APP_NAME := api
 API_CMD := ./cmd/api
+SEED_CMD := ./cmd/seed
 GO_PACKAGES := ./...
 ENV_FILE := deployment/.env
 ENV_EXAMPLE := deployment/.env.example
 COMPOSE_FILE := deployment/docker-compose.yml
 
-.PHONY: help env-check tidy fmt vet lint test test-race build run generate generate-graphql generate-openapi docker-up docker-down docker-logs clean
+WEB_DIR := web
+WEB_ENV_FILE := $(WEB_DIR)/.env.local
+WEB_ENV_EXAMPLE := $(WEB_DIR)/.env.example
+
+.PHONY: help env-check tidy fmt vet lint test test-race build run seed generate generate-graphql generate-openapi docker-up docker-down docker-logs clean web-env-check web-install web-dev web-build web-lint web-clean
 
 help:
 	@echo "Available targets:"
@@ -21,6 +26,7 @@ help:
 	@echo "  make test-race          - Run all tests with race detector"
 	@echo "  make build              - Build API binary into ./bin/api"
 	@echo "  make run                - Run API locally with deployment/.env"
+	@echo "  make seed               - Seed the first OWNER account + API key"
 	@echo "  make generate           - Run all code generation scripts"
 	@echo "  make generate-graphql   - Run GraphQL generation script"
 	@echo "  make generate-openapi   - Run OpenAPI generation script"
@@ -28,6 +34,11 @@ help:
 	@echo "  make docker-down        - Stop docker compose services"
 	@echo "  make docker-logs        - Tail docker compose logs"
 	@echo "  make clean              - Remove local build artifacts"
+	@echo "  make web-install        - Install web console dependencies"
+	@echo "  make web-dev            - Run the web console locally (:5173)"
+	@echo "  make web-build          - Build the web console for production"
+	@echo "  make web-lint           - Type-check the web console"
+	@echo "  make web-clean          - Remove web console build artifacts"
 
 env-check:
 	@if [ ! -f "$(ENV_FILE)" ]; then \
@@ -60,6 +71,9 @@ run: env-check
 	clear
 	@set -a; source "$(ENV_FILE)"; set +a; go run $(API_CMD)
 
+seed: env-check
+	@set -a; source "$(ENV_FILE)"; set +a; go run $(SEED_CMD) $(ARGS)
+
 generate: generate-graphql generate-openapi
 
 generate-graphql:
@@ -79,3 +93,24 @@ docker-logs: env-check
 
 clean:
 	rm -rf bin
+
+web-env-check:
+	@if [ ! -f "$(WEB_ENV_FILE)" ]; then \
+		cp "$(WEB_ENV_EXAMPLE)" "$(WEB_ENV_FILE)"; \
+		echo "Created $(WEB_ENV_FILE) from $(WEB_ENV_EXAMPLE)."; \
+	fi
+
+web-install:
+	cd $(WEB_DIR) && npm install
+
+web-dev: web-env-check
+	cd $(WEB_DIR) && npm run dev
+
+web-build: web-env-check
+	cd $(WEB_DIR) && npm run build
+
+web-lint:
+	cd $(WEB_DIR) && npm run lint
+
+web-clean:
+	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/node_modules

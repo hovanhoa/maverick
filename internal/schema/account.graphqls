@@ -1,4 +1,25 @@
 """
+Role governs what an account is permitted to manage. It is global on the
+account, not per-team, matching the current 1-account-to-0-or-1-team model.
+"""
+enum Role {
+    """
+    Full control: can manage accounts, teams, roles, and API keys.
+    """
+    OWNER
+
+    """
+    Can manage accounts, teams, and API keys, but is not an OWNER.
+    """
+    ADMIN
+
+    """
+    Default role: can manage their own account and API keys only.
+    """
+    MEMBER
+}
+
+"""
 Account represents a user account in the system
 """
 type Account {
@@ -21,6 +42,11 @@ type Account {
     Team this account belongs to, if any
     """
     teamId: ID
+
+    """
+    Role governing what this account can manage
+    """
+    role: Role!
 
     """
     Timestamp the account was created
@@ -64,21 +90,28 @@ extend type Query {
     Get an account by ID
     """
     account(id: ID!): Account
+
+    """
+    The account authenticated by the API key on this request.
+    """
+    me: Account!
 }
 
 extend type Mutation {
     """
-    Create a new account
+    Create a new account. role defaults to MEMBER.
     """
-    createAccount(email: String!, username: String!, teamId: ID): Account!
+    createAccount(email: String!, username: String!, teamId: ID, role: Role): Account!
 
     """
-    Update an existing account. Provide at least one of email, username, teamId, or clearTeamId.
+    Update an existing account. Provide at least one of email, username, teamId,
+    clearTeamId, or role. Changing role requires the caller to be an OWNER or ADMIN.
     """
-    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean): Account!
+    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean, role: Role): Account!
 
     """
-    Delete an account by ID. Returns true if a row was removed.
+    Delete an account by ID. Requires the caller to be an OWNER or ADMIN.
+    Returns true if a row was removed.
     """
     deleteAccount(id: ID!): Boolean!
 }

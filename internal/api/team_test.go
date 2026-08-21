@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hovanhoa/llmgateway/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func TestAccountResolver_CreateWithTeam(t *testing.T) {
 	team, err := mr.CreateTeam(ctx, "home")
 	require.NoError(t, err)
 
-	acc, err := mr.CreateAccount(ctx, "withteam@example.com", "withteam", &team.ID)
+	acc, err := mr.CreateAccount(ctx, "withteam@example.com", "withteam", &team.ID, nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc.TeamID)
 	assert.Equal(t, team.ID, *acc.TeamID)
@@ -152,4 +153,84 @@ func TestTeamResolver_Teams_RejectsBadBounds(t *testing.T) {
 	_, err = qr.Teams(ctx, nil, &negative)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "offset must not be negative")
+}
+
+// TestTeamResolver_CreateTeam_DeniedForMember asserts the RBAC rule that
+// only OWNER/ADMIN callers may create teams.
+func TestTeamResolver_CreateTeam_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	caller, err := mr.CreateAccount(ctx, "member-team-creator@example.com", "memberteamcreator", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	_, err = mr.CreateTeam(memberCtx, "should-not-exist")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+// TestTeamResolver_CreateTeam_AutoAssignsOwner asserts that the creating
+// account is auto-assigned OWNER of the team it just created.
+func TestTeamResolver_CreateTeam_AutoAssignsOwner(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	caller, err := mr.CreateAccount(ctx, "admin-team-creator@example.com", "adminteamcreator", nil, nil)
+	require.NoError(t, err)
+
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+
+	team, err := mr.CreateTeam(adminCtx, "auto-owner-team")
+	require.NoError(t, err)
+
+	updatedCaller, err := (&queryResolver{r}).Account(ctx, caller.ID)
+	require.NoError(t, err)
+	require.NotNil(t, updatedCaller.TeamID)
+	assert.Equal(t, team.ID, *updatedCaller.TeamID)
+	assert.Equal(t, model.RoleOwner, updatedCaller.Role)
+}
+
+// TestTeamResolver_UpdateTeam_DeniedForMember and
+// TestTeamResolver_DeleteTeam_DeniedForMember assert the same RBAC rule for
+// updateTeam and deleteTeam.
+func TestTeamResolver_UpdateTeam_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "update-rbac-team")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "member-team-updater@example.com", "memberteamupdater", nil, nil)
+	require.NoError(t, err)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	_, err = mr.UpdateTeam(memberCtx, team.ID, "renamed")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestTeamResolver_DeleteTeam_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "delete-rbac-team")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "member-team-deleter@example.com", "memberteamdeleter", nil, nil)
+	require.NoError(t, err)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	_, err = mr.DeleteTeam(memberCtx, team.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
 }

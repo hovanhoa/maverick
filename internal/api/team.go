@@ -7,8 +7,33 @@ import (
 )
 
 func (r *Resolver) createTeam(ctx context.Context, name string) (*model.Team, error) {
+	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+		return nil, err
+	}
+
 	team := &model.Team{Name: name}
-	return r.deps.Database.CreateTeam(ctx, team)
+	team, err := r.deps.Database.CreateTeam(ctx, team)
+	if err != nil {
+		return nil, err
+	}
+
+	// The team creator is auto-assigned OWNER for the team it created. This
+	// only applies to callers backed by a real account; RBAC guarantees
+	// that's always true outside of tests.
+	if principal := currentPrincipal(ctx); principal != nil {
+		caller, err := r.deps.Database.GetAccountByID(ctx, principal.ID)
+		if err != nil {
+			return nil, err
+		}
+		if caller != nil {
+			ownerRole := model.RoleOwner
+			if _, err := r.deps.Database.UpdateAccount(ctx, principal.ID, nil, nil, &team.ID, nil, &ownerRole); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return team, nil
 }
 
 func (r *Resolver) listTeams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
@@ -34,9 +59,15 @@ func (r *Resolver) getTeam(ctx context.Context, id string) (*model.Team, error) 
 }
 
 func (r *Resolver) updateTeam(ctx context.Context, id string, name string) (*model.Team, error) {
+	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+		return nil, err
+	}
 	return r.deps.Database.UpdateTeam(ctx, id, name)
 }
 
 func (r *Resolver) deleteTeam(ctx context.Context, id string) (bool, error) {
+	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+		return false, err
+	}
 	return r.deps.Database.DeleteTeam(ctx, id)
 }

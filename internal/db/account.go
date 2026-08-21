@@ -11,10 +11,17 @@ import (
 	"github.com/hovanhoa/llmgateway/pkg/core/errors"
 )
 
-// CreateAccount creates and persists a new account record.
+// CreateAccount creates and persists a new account record. Role defaults to
+// MEMBER when not set.
 func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (*model.Account, error) {
 	if account.ID == "" {
 		account.ID = encoding.NewRandomIdentifier("account")
+	}
+
+	if account.Role == "" {
+		account.Role = model.RoleMember
+	} else if !account.Role.IsValid() {
+		return nil, errors.New("invalid role %q", account.Role)
 	}
 
 	if account.TeamID != nil && *account.TeamID != "" {
@@ -52,16 +59,19 @@ func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (
 	return account, nil
 }
 
-// UpdateAccount updates an account's email, username, and/or team assignment.
-// At least one of email, username, teamId, or clearTeamId must be provided for a meaningful update.
-func (db *Database) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool) (*model.Account, error) {
+// UpdateAccount updates an account's email, username, team assignment, and/or role.
+// At least one of email, username, teamId, clearTeamId, or role must be provided for a meaningful update.
+func (db *Database) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
 	clear := clearTeamID != nil && *clearTeamID
 	hasTeamID := teamID != nil && *teamID != ""
-	if email == nil && username == nil && !hasTeamID && !clear {
-		return nil, errors.New("at least one of email, username, teamId, or clearTeamId must be provided")
+	if email == nil && username == nil && !hasTeamID && !clear && role == nil {
+		return nil, errors.New("at least one of email, username, teamId, clearTeamId, or role must be provided")
 	}
 	if clear && hasTeamID {
 		return nil, errors.New("cannot set teamId and clearTeamId in the same request")
+	}
+	if role != nil && !role.IsValid() {
+		return nil, errors.New("invalid role %q", *role)
 	}
 
 	existing, err := db.GetAccountByID(ctx, id)
@@ -77,6 +87,9 @@ func (db *Database) UpdateAccount(ctx context.Context, id string, email *string,
 	}
 	if username != nil {
 		existing.Username = *username
+	}
+	if role != nil {
+		existing.Role = *role
 	}
 	if clear {
 		existing.TeamID = nil

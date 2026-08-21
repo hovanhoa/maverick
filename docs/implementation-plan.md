@@ -1,118 +1,122 @@
 # Go AI Gateway Implementation Plan
 
-This document captures a feature-by-feature, step-by-step implementation plan based on the suggested repository roadmap.
+This document tracks the feature-by-feature roadmap. Status markers (`Done` /
+`In progress` / `Planned`) reflect the actual state of the codebase, not the
+original aspirational plan — update them as work lands.
 
-## Phase 0: Foundation Setup
+## Phase 0: Foundation Setup — Done
 
-### 1) `cmd/gateway` (Service Entrypoint)
-1. Define runtime configuration structure (env vars + defaults) for DB, Redis, providers, auth, and observability.
-2. Build bootstrap sequence: config -> logger -> telemetry -> storage -> services -> HTTP server.
-3. Add graceful shutdown and health/readiness endpoints.
-4. Add dependency wiring using interfaces (avoid tight coupling to concrete implementations).
-5. Add startup validation for required settings and provider credential shape.
+### 1) `cmd/api` (Service Entrypoint) — Done
+- Bootstrap sequence: connect Redis -> connect PostgreSQL -> run migrations -> start HTTP service (see [cmd/api/main.go](../cmd/api/main.go)).
+- Gin HTTP service with `GET /ping`, `POST /graphql`, `:9090/metrics` (see [internal/http/](../internal/http/)).
 
-### 2) `internal/storage` (PostgreSQL/Redis)
-1. Design initial schema: users, teams, api_keys, quotas, usage_events, audit_logs, requests.
-2. Create migration strategy with versioned migrations.
-3. Define repository interfaces first, then implement PostgreSQL and Redis backends.
-4. Implement connection pooling, retry policy, and timeout handling.
-5. Add Redis-backed patterns for rate limiting counters, window tracking, and idempotency keys.
-6. Add tests for repository behavior and migration sanity.
+### 2) `internal/db` (PostgreSQL/Redis) — Done for Account/Team/API key
+- Schema so far: `account`, `team` — JSONB payload pattern (`id`, `<entity>` JSONB, `created_at`, `updated_at`); `api_key` — a normal relational table (`id`, `account_id`, `key_hash`, `prefix`, `created_at`, `revoked_at`).
+- Migration system tracks state in `migrations_state` table (see [internal/db/migrations/](../internal/db/migrations/)).
+- Repository layer built with Masterminds Squirrel (see [internal/db/account.go](../internal/db/account.go), [internal/db/team.go](../internal/db/team.go), [internal/db/apikey.go](../internal/db/apikey.go)).
+- Still needed: `quota`, `usage_event`, `audit_log` tables (Phase 3/4).
 
-## Phase 1: Security and Access Control
+## Phase 1: Account, Team, Role & Access Control — Done
 
-### 3) `internal/auth` (Authentication + Authorization + RBAC)
-1. Decide MVP authentication mode (API key first; optional JWT later).
-2. Define identity model (user/team/service account) and role model (admin/member/read-only).
-3. Implement authentication middleware to verify credentials and attach principal to request context.
-4. Implement authorization checks based on role + resource scope.
-5. Add API key lifecycle flows: create, rotate, revoke.
-6. Emit audit logs for authentication failures, denied access, and key lifecycle operations.
-7. Add unit/integration tests for role allow/deny matrix.
+Goal: every dev in the org gets an `Account` (optionally under a `Team`), with
+a `Role` that governs what they can manage, and a self-issued API key that
+authenticates their calls (both to the management GraphQL API and, from
+Phase 2 onward, to the LLM proxy itself).
 
-### 4) `internal/policy` (Prompt/Data Policy Checks)
-1. Define policy engine interfaces with pre-request, pre-log, and pre-response hooks.
-2. Implement baseline policies:
-   - blocked content patterns
-   - sensitive data detection rules
-   - prompt size/format guardrails
-3. Add configurable policy actions: allow, redact, deny.
-4. Ensure policy checks run before provider invocation.
-5. Add policy decision logging with reason codes (without exposing sensitive raw content).
-6. Add tests for pass/deny/redact coverage.
+### 1a) Account & Team CRUD — Done
+- GraphQL schema: [internal/schema/account.graphqls](../internal/schema/account.graphqls), [internal/schema/team.graphqls](../internal/schema/team.graphqls).
+- Resolvers + db layer: [internal/api/account.go](../internal/api/account.go), [internal/api/team.go](../internal/api/team.go), [internal/db/account.go](../internal/db/account.go), [internal/db/team.go](../internal/db/team.go).
+- Paginated list queries for both, with DataLoaders to avoid N+1.
 
-## Phase 2: Provider and API Core
+### 1b) Role model — Done
+1. Added `enum Role { OWNER ADMIN MEMBER }` and `role: Role!` on `Account` in [account.graphqls](../internal/schema/account.graphqls). Reused the gqlgen-generated `model.Role` type as the generic auth framework's `Role` type parameter.
+2. `createAccount(..., role: Role)` (default `MEMBER`); `updateAccount(..., role: Role)` — see [internal/api/account.go](../internal/api/account.go), [internal/db/account.go](../internal/db/account.go).
+3. Business rule enforced in the resolver layer (`requireRole` in [internal/api/authz.go](../internal/api/authz.go)): only `OWNER`/`ADMIN` can change another account's role, create an account with an elevated role, or delete accounts.
+4. Team creator is auto-assigned `OWNER` for that team (`createTeam` in [internal/api/team.go](../internal/api/team.go)).
+5. Decision: role is **global on Account**, not per-team — matches the current 1-account-to-0-or-1-team model. Revisit if accounts ever need to belong to multiple teams.
 
-### 5) `pkg/openai` (OpenAI-Compatible Models)
-1. Define canonical request/response structs for chat/completions (including streaming chunks).
-2. Add validation and normalization helpers.
-3. Add mapper helpers between canonical models and provider-specific payloads.
-4. Add compatibility tests with representative payload fixtures.
+### 1c) API key issuance — Done
+1. New table `api_key(id, account_id, key_hash, prefix, created_at, revoked_at)` — stores a SHA-256 hash, never the plaintext secret (see [migrations](../internal/db/migrations/00001_api_key_table.up.sql)).
+2. New schema [apikey.graphqls](../internal/schema/apikey.graphqls):
+   - `createApiKey(accountId: ID!): ApiKeySecret!` — returns the plaintext key once, on creation only.
+   - `apiKeys(accountId: ID!): [ApiKey!]!` — metadata only (id, prefix, createdAt, revokedAt).
+   - `revokeApiKey(id: ID!): Boolean!`
+3. db layer: [internal/db/apikey.go](../internal/db/apikey.go) — `CreateAPIKey`, `GetAccountByAPIKeyHash`, `ListAPIKeysByAccount`, `RevokeAPIKey`, `HashAPIKey`.
+4. Decision: API key is the auth mechanism for both the management API (Phase 1) and the LLM proxy (Phase 2+) — no separate JWT/SSO flow for MVP.
 
-### 6) `internal/provider` (Abstraction + Adapters)
-1. Define provider interface for non-streaming and streaming calls.
-2. Implement adapter scaffolds for Claude, Bedrock, and Vertex AI.
-3. Map canonical request/response to each provider format.
-4. Standardize provider error taxonomy (auth, quota, timeout, transient, policy).
-5. Implement retry/fallback contracts for MVP-safe behavior.
-6. Add adapter tests with mocked provider clients/responses.
+### 1d) Wire RBAC into the request path — Done
+1. Defined concrete `type Identity string` (`ACCOUNT`) in [internal/model/identity.go](../internal/model/identity.go), reusing the gqlgen-generated `model.Role` (`OWNER`/`ADMIN`/`MEMBER`) as the `Role` type parameter, on top of the existing generic framework in [pkg/core/auth/](../pkg/core/auth/) and [pkg/core/http/auth_middleware.go](../pkg/core/http/auth_middleware.go).
+2. Implemented `Authorizer[Identity, Role]` in [internal/authz/authorizer.go](../internal/authz/authorizer.go): `GetPrincipalFromToken` treats the token as an API key -> hash -> lookup account -> build `Principal{ID, Roles: [account.Role], OrgID: account.TeamID}`. `GetPrincipalFromEmail` is a no-op (returns `nil, nil`) — the email-fallback branch doesn't apply to this project.
+3. `AuthMiddleware` + `RequireAuth` are registered ahead of the `/graphql` route in [internal/http/service.go](../internal/http/service.go).
+4. Since all GraphQL operations share one HTTP route, per-operation role checks live in the resolvers rather than as HTTP middleware: `requireRole`/`requireSelfOrRole` in [internal/api/authz.go](../internal/api/authz.go), applied to `deleteAccount`, `updateAccount` (when changing `role`), `createTeam`/`updateTeam`/`deleteTeam`, and `createApiKey`/`revokeApiKey` (when targeting another account).
+5. Bootstrap: [cmd/seed](../cmd/seed/main.go) is a one-off CLI that seeds the first `OWNER` account + API key (logging the plaintext key once) so there's a first admin able to create everyone else. It's a no-op if an `OWNER` account already exists.
 
-### 7) `internal/api` (HTTP Handlers + Routing)
-1. Define primary endpoints (`/v1/chat/completions`, health, and minimal admin endpoints).
-2. Build middleware order: auth -> request id -> rate/quota precheck -> policy -> handler -> logging.
-3. Implement request parsing, validation, and OpenAI-compatible response shape.
-4. Add streaming response flow using SSE/chunk forwarding.
-5. Ensure consistent error envelope and HTTP status mapping.
-6. Add integration tests from HTTP input through provider mocks.
+### 1e) Tests — Done
+- [internal/db/apikey_test.go](../internal/db/apikey_test.go): hash/lookup/revoke correctness; revoked key fails auth.
+- [internal/api/account_test.go](../internal/api/account_test.go), [team_test.go](../internal/api/team_test.go), [apikey_test.go](../internal/api/apikey_test.go): role-change/delete/create-team/API-key operations denied for non-OWNER/ADMIN callers, allowed for OWNER/ADMIN.
+- [internal/authz/authorizer_test.go](../internal/authz/authorizer_test.go) and [internal/http/service_test.go](../internal/http/service_test.go): Authorizer and end-to-end middleware integration — valid key -> correct Principal/role; missing/invalid/revoked key -> 401.
 
-## Phase 3: Governance, Limits, and Metering
+## Phase 2: Virtual API Keys for the Proxy — Planned
 
-### 8) `internal/quota` (Usage Limits + Enforcement)
-1. Define quota dimensions (team/user/key/model/time window).
-2. Implement pre-call quota checks with reservation semantics.
-3. Implement post-call reconciliation with actual usage.
-4. Use Redis for fast counters and PostgreSQL for durable records.
-5. Add admin APIs for quota policy updates.
-6. Add tests for edge cases and concurrent access.
+Reuses the `api_key` mechanism from 1c, scoped to the actual LLM proxy path
+(not just the management API):
+1. Devs configure their Cursor/agent with their personal or team API key pointed at the gateway base URL.
+2. Key -> account/team/role resolution reused from Phase 1's `Authorizer`.
+3. Per-key/per-team model allowlist (which providers/models a key may call).
 
-### 9) `internal/usage` (Token/Cost Metering)
-1. Define metering event schema: request id, principal, model, token counts, unit cost.
-2. Implement provider-specific token/cost extraction and normalization.
-3. Persist immutable usage events.
-4. Add aggregation queries for daily totals by team/user/model/provider.
-5. Expose basic usage reporting endpoints.
-6. Validate metering accuracy with fixtures and edge-case tests.
+## Phase 3: Provider and API Core — Planned
 
-## Phase 4: Observability and Operational Hardening
+### `pkg/openai` (OpenAI-Compatible Models)
+1. Canonical request/response structs for chat/completions (incl. streaming chunks).
+2. Validation/normalization helpers; mappers to provider-specific payloads.
+3. Compatibility tests with representative payload fixtures.
 
-### 10) `internal/observability` (Logs, Traces, Metrics)
-1. Define structured logging fields: request id, team, model, provider, latency, status.
-2. Add OpenTelemetry tracing across request lifecycle and provider/storage calls.
-3. Add metrics for throughput, latency, errors, quota denials, provider failures, and stream duration.
-4. Add redaction layer for logs/traces to avoid secrets/PII leakage.
-5. Build baseline dashboard/alerts for latency spikes and error-rate changes.
-6. Run load tests and tune retries, timeouts, and connection pools.
+### `internal/provider` (Abstraction + Adapters)
+1. Provider interface for non-streaming and streaming calls.
+2. Adapter scaffolds for Claude, OpenAI, Gemini, Bedrock, Vertex AI.
+3. Standardized provider error taxonomy (auth, quota, timeout, transient, policy).
+4. Retry/fallback contracts; adapter tests with mocked provider clients.
 
-## Recommended Delivery Order
+### `internal/api` proxy endpoints
+1. `/v1/chat/completions` (OpenAI-compatible) plus minimal admin endpoints.
+2. Middleware order: auth -> request id -> rate/quota precheck -> policy -> handler -> logging.
+3. Streaming response flow via SSE/chunk forwarding.
+4. Consistent error envelope and HTTP status mapping.
 
-1. `cmd/gateway` foundation + config + health checks
-2. `internal/storage` + migrations
-3. `internal/auth`
-4. `pkg/openai` canonical models
-5. `internal/provider` with one provider first, then expand
-6. `internal/api` baseline non-streaming endpoint
-7. `internal/policy` baseline checks
-8. `internal/quota` enforcement
-9. `internal/usage` metering and reporting
-10. `internal/observability` deep instrumentation
-11. End-to-end streaming support hardening
-12. Stabilization: testing, security review, and docs
+## Phase 4: Governance, Limits, and Metering — Planned
+
+### `internal/quota`
+1. Quota dimensions (team/account/key/model/time window).
+2. Pre-call quota checks with reservation semantics; post-call reconciliation.
+3. Redis for fast counters, PostgreSQL for durable records.
+4. Admin APIs for quota policy updates.
+
+### `internal/usage`
+1. Metering event schema: request id, principal, model, token counts, unit cost.
+2. Provider-specific token/cost extraction and normalization.
+3. Immutable usage events; aggregation queries by team/account/model/provider.
+4. Basic usage reporting endpoints.
+
+### `internal/policy`
+1. Pre-request/pre-log/pre-response policy hooks.
+2. Baseline policies: blocked content patterns, sensitive data detection, prompt size/format guardrails.
+3. Configurable actions: allow, redact, deny — enforced before provider invocation.
+4. Policy decision logging with reason codes (no raw sensitive content).
+
+## Phase 5: Observability and Operational Hardening — Planned
+
+1. Structured logging fields: request id, team, account, model, provider, latency, status.
+2. OpenTelemetry tracing across request lifecycle and provider/storage calls (Sentry already wired for errors — see CLAUDE.md).
+3. Metrics for throughput, latency, errors, quota denials, provider failures, stream duration.
+4. Redaction layer for logs/traces to avoid secret/PII leakage.
+5. Load tests; tune retries, timeouts, connection pools.
 
 ## MVP Exit Criteria
 
-- Auth is enforced on all inference endpoints.
-- Claude, Bedrock, and Vertex integrations are operational.
-- OpenAI-compatible endpoint supports both non-stream and streaming flows.
+- Auth (API key) is enforced on all management and inference endpoints.
+- Role-based access control governs account/team management operations.
+- Claude, OpenAI, Gemini, Bedrock, and Vertex integrations are operational.
+- OpenAI-compatible endpoint supports both non-streaming and streaming flows.
 - Policy checks run before provider calls.
 - Quota enforcement blocks overages correctly.
 - Usage and cost events are persisted and queryable.

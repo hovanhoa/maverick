@@ -6,14 +6,31 @@ import (
 	"testing"
 
 	"github.com/hovanhoa/llmgateway/internal/db/testdb"
+	"github.com/hovanhoa/llmgateway/internal/model"
+	"github.com/hovanhoa/llmgateway/pkg/core/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// testResolver returns a Resolver backed by a fresh test database, with the
+// context authenticated as an OWNER so existing CRUD-focused tests don't
+// need to think about RBAC. The principal is not backed by a real account
+// row (so it never shows up in account list/count assertions); createTeam's
+// auto-OWNER assignment skips callers with no matching account, just as it
+// would need to for any RBAC-exempt caller. Tests exercising RBAC itself,
+// or the auto-OWNER assignment itself, should install their own principal
+// via auth.WithPrincipal against a real, persisted account.
 func testResolver(t *testing.T) (*Resolver, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 	database := testdb.NewTestDatabase(ctx, t)
+
+	principal := &auth.Principal[model.Identity, model.Role]{
+		ID:   "account_test_caller",
+		Type: model.IdentityAccount,
+	}
+	ctx = auth.WithPrincipal(ctx, principal.WithRoles(model.RoleOwner))
+
 	return &Resolver{deps: Dependencies{Database: database}}, ctx
 }
 
@@ -25,7 +42,7 @@ func TestAccountResolver_CRUD(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	created, err := mr.CreateAccount(ctx, "api-crud@example.com", "apicrud", nil)
+	created, err := mr.CreateAccount(ctx, "api-crud@example.com", "apicrud", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, created)
 	require.NotEmpty(t, created.ID)
@@ -40,7 +57,7 @@ func TestAccountResolver_CRUD(t *testing.T) {
 	assert.Equal(t, created.Email, fetched.Email)
 
 	newEmail := "api-updated@example.com"
-	updated, err := mr.UpdateAccount(ctx, created.ID, &newEmail, nil, nil, nil)
+	updated, err := mr.UpdateAccount(ctx, created.ID, &newEmail, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, newEmail, updated.Email)
@@ -62,7 +79,7 @@ func TestAccountResolver_CreateAccount_GeneratesID(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	created, err := mr.CreateAccount(ctx, "api-auto@example.com", "apiauto", nil)
+	created, err := mr.CreateAccount(ctx, "api-auto@example.com", "apiauto", nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.ID)
 	assert.True(t, strings.HasPrefix(created.ID, "account_"))
@@ -99,9 +116,9 @@ func TestAccountResolver_UpdateAccount_ValidationError(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	_, err := mr.UpdateAccount(ctx, "any_id", nil, nil, nil, nil)
+	_, err := mr.UpdateAccount(ctx, "any_id", nil, nil, nil, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one of email, username, teamId, or clearTeamId")
+	assert.Contains(t, err.Error(), "at least one of email, username, teamId, clearTeamId, or role")
 }
 
 // TestResolver_createAccount_getAccount_updateAccount_deleteAccount covers the thin helpers on *Resolver.
@@ -110,7 +127,7 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 
 	r, ctx := testResolver(t)
 
-	acc, err := r.createAccount(ctx, "helper@example.com", "helperuser", nil)
+	acc, err := r.createAccount(ctx, "helper@example.com", "helperuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 
@@ -120,7 +137,7 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 	assert.Equal(t, acc.ID, got.ID)
 
 	email := "helper2@example.com"
-	upd, err := r.updateAccount(ctx, acc.ID, &email, nil, nil, nil)
+	upd, err := r.updateAccount(ctx, acc.ID, &email, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, upd)
 	assert.Equal(t, email, upd.Email)
@@ -150,9 +167,9 @@ func TestAccountResolver_Accounts(t *testing.T) {
 	team, err := mr.CreateTeam(ctx, "resolver-accounts-team")
 	require.NoError(t, err)
 
-	_, err = mr.CreateAccount(ctx, "solo@example.com", "solo", nil)
+	_, err = mr.CreateAccount(ctx, "solo@example.com", "solo", nil, nil)
 	require.NoError(t, err)
-	_, err = mr.CreateAccount(ctx, "member@example.com", "member", &team.ID)
+	_, err = mr.CreateAccount(ctx, "member@example.com", "member", &team.ID, nil)
 	require.NoError(t, err)
 
 	all, err := qr.Accounts(ctx, nil, nil, nil)
@@ -178,7 +195,7 @@ func TestAccountResolver_Accounts_Pagination(t *testing.T) {
 	qr := &queryResolver{r}
 
 	for _, name := range []string{"one", "two", "three"} {
-		_, err := mr.CreateAccount(ctx, name+"@example.com", name, nil)
+		_, err := mr.CreateAccount(ctx, name+"@example.com", name, nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -205,7 +222,7 @@ func TestAccountResolver_Accounts_ClampsLimit(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	_, err := mr.CreateAccount(ctx, "only@example.com", "only", nil)
+	_, err := mr.CreateAccount(ctx, "only@example.com", "only", nil, nil)
 	require.NoError(t, err)
 
 	// An oversized limit is clamped to MaxPageLimit rather than rejected.
@@ -215,4 +232,140 @@ func TestAccountResolver_Accounts_ClampsLimit(t *testing.T) {
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, 1, page.TotalCount)
 	assert.False(t, page.HasNextPage)
+}
+
+// asPrincipal returns a copy of ctx authenticated as accountID with the given role.
+func asPrincipal(ctx context.Context, accountID string, role model.Role) context.Context {
+	principal := &auth.Principal[model.Identity, model.Role]{
+		ID:   accountID,
+		Type: model.IdentityAccount,
+	}
+	return auth.WithPrincipal(ctx, principal.WithRoles(role))
+}
+
+// TestAccountResolver_UpdateAccount_RoleChange_DeniedForMember asserts the
+// business rule that only OWNER/ADMIN callers may change another account's role.
+func TestAccountResolver_UpdateAccount_RoleChange_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	target, err := mr.CreateAccount(ctx, "target@example.com", "target", nil, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "caller@example.com", "caller", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	admin := model.RoleAdmin
+	_, err = mr.UpdateAccount(memberCtx, target.ID, nil, nil, nil, nil, &admin)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+
+	// The role must be unchanged.
+	unchanged, err := (&queryResolver{r}).Account(ctx, target.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.RoleMember, unchanged.Role)
+}
+
+// TestAccountResolver_UpdateAccount_RoleChange_AllowedForAdmin is the converse:
+// an OWNER/ADMIN caller may change another account's role.
+func TestAccountResolver_UpdateAccount_RoleChange_AllowedForAdmin(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	target, err := mr.CreateAccount(ctx, "target2@example.com", "target2", nil, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "caller2@example.com", "caller2", nil, nil)
+	require.NoError(t, err)
+
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+
+	admin := model.RoleAdmin
+	updated, err := mr.UpdateAccount(adminCtx, target.ID, nil, nil, nil, nil, &admin)
+	require.NoError(t, err)
+	assert.Equal(t, model.RoleAdmin, updated.Role)
+}
+
+// TestAccountResolver_DeleteAccount_DeniedForMember asserts the business rule
+// that only OWNER/ADMIN callers may delete accounts.
+func TestAccountResolver_DeleteAccount_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	target, err := mr.CreateAccount(ctx, "todelete@example.com", "todelete", nil, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "deleter@example.com", "deleter", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	_, err = mr.DeleteAccount(memberCtx, target.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+
+	still, err := (&queryResolver{r}).Account(ctx, target.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, still)
+}
+
+// TestAccountResolver_CreateAccount_ElevatedRole_DeniedForMember asserts that
+// only OWNER/ADMIN callers may create an account with a role other than the
+// MEMBER default.
+func TestAccountResolver_CreateAccount_ElevatedRole_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	caller, err := mr.CreateAccount(ctx, "creator@example.com", "creator", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	admin := model.RoleAdmin
+	_, err = mr.CreateAccount(memberCtx, "elevated@example.com", "elevated", nil, &admin)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+// TestAccountResolver_Me returns the account backing the caller's own principal,
+// which is how the frontend knows what the current user is allowed to do.
+func TestAccountResolver_Me(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	caller, err := mr.CreateAccount(ctx, "whoami@example.com", "whoami", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	me, err := qr.Me(memberCtx)
+	require.NoError(t, err)
+	require.NotNil(t, me)
+	assert.Equal(t, caller.ID, me.ID)
+	assert.Equal(t, model.RoleMember, me.Role)
+}
+
+// TestAccountResolver_Me_NoPrincipal errors when there's no authenticated principal.
+func TestAccountResolver_Me_NoPrincipal(t *testing.T) {
+	t.Parallel()
+
+	r, _ := testResolver(t)
+	qr := &queryResolver{r}
+
+	_, err := qr.Me(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication required")
 }

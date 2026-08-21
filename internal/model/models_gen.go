@@ -3,6 +3,10 @@
 package model
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"strconv"
 	"time"
 )
 
@@ -16,6 +20,8 @@ type Account struct {
 	Username string `json:"username"`
 	// Team this account belongs to, if any
 	TeamID *string `json:"teamId,omitempty"`
+	// Role governing what this account can manage
+	Role Role `json:"role"`
 	// Timestamp the account was created
 	CreatedAt time.Time `json:"createdAt"`
 	// Timestamp the account was last updated
@@ -30,6 +36,30 @@ type AccountConnection struct {
 	TotalCount int `json:"totalCount"`
 	// Whether a further page follows this one
 	HasNextPage bool `json:"hasNextPage"`
+}
+
+// ApiKey is metadata about an issued API key. The plaintext secret is never
+// available after creation.
+type APIKey struct {
+	// Unique identifier for the API key
+	ID string `json:"id"`
+	// Account this key authenticates as
+	AccountID string `json:"accountId"`
+	// Non-secret prefix of the key, shown so a user can recognize which key is which
+	Prefix string `json:"prefix"`
+	// Timestamp the key was created
+	CreatedAt time.Time `json:"createdAt"`
+	// Timestamp the key was revoked, if it has been
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+}
+
+// ApiKeySecret is returned only once, at creation time. The key cannot be
+// retrieved again after this - if lost, it must be revoked and reissued.
+type APIKeySecret struct {
+	// Metadata about the created key
+	APIKey APIKey `json:"apiKey"`
+	// The plaintext API key. Store it now - it will not be shown again.
+	Key string `json:"key"`
 }
 
 // Team represents a team in the system
@@ -52,4 +82,66 @@ type TeamConnection struct {
 	TotalCount int `json:"totalCount"`
 	// Whether a further page follows this one
 	HasNextPage bool `json:"hasNextPage"`
+}
+
+// Role governs what an account is permitted to manage. It is global on the
+// account, not per-team, matching the current 1-account-to-0-or-1-team model.
+type Role string
+
+const (
+	// Full control: can manage accounts, teams, roles, and API keys.
+	RoleOwner Role = "OWNER"
+	// Can manage accounts, teams, and API keys, but is not an OWNER.
+	RoleAdmin Role = "ADMIN"
+	// Default role: can manage their own account and API keys only.
+	RoleMember Role = "MEMBER"
+)
+
+var AllRole = []Role{
+	RoleOwner,
+	RoleAdmin,
+	RoleMember,
+}
+
+func (e Role) IsValid() bool {
+	switch e {
+	case RoleOwner, RoleAdmin, RoleMember:
+		return true
+	}
+	return false
+}
+
+func (e Role) String() string {
+	return string(e)
+}
+
+func (e *Role) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = Role(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid Role", str)
+	}
+	return nil
+}
+
+func (e Role) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *Role) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e Role) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }

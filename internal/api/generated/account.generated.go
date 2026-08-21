@@ -20,9 +20,11 @@ import (
 // region    ************************** generated!.gotpl **************************
 
 type MutationResolver interface {
-	CreateAccount(ctx context.Context, email string, username string, teamID *string) (*model.Account, error)
-	UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool) (*model.Account, error)
+	CreateAccount(ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.Account, error)
+	UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error)
 	DeleteAccount(ctx context.Context, id string) (bool, error)
+	CreateAPIKey(ctx context.Context, accountID string) (*model.APIKeySecret, error)
+	RevokeAPIKey(ctx context.Context, id string) (bool, error)
 	CreateTeam(ctx context.Context, name string) (*model.Team, error)
 	UpdateTeam(ctx context.Context, id string, name string) (*model.Team, error)
 	DeleteTeam(ctx context.Context, id string) (bool, error)
@@ -30,6 +32,8 @@ type MutationResolver interface {
 type QueryResolver interface {
 	Accounts(ctx context.Context, teamID *string, limit *int, offset *int) (*model.AccountConnection, error)
 	Account(ctx context.Context, id string) (*model.Account, error)
+	Me(ctx context.Context) (*model.Account, error)
+	APIKeys(ctx context.Context, accountID string) ([]model.APIKey, error)
 	Teams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error)
 	Team(ctx context.Context, id string) (*model.Team, error)
 }
@@ -56,6 +60,11 @@ func (ec *executionContext) field_Mutation_createAccount_args(ctx context.Contex
 		return nil, err
 	}
 	args["teamId"] = arg2
+	arg3, err := ec.field_Mutation_createAccount_argsRole(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["role"] = arg3
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_createAccount_argsEmail(
@@ -109,6 +118,52 @@ func (ec *executionContext) field_Mutation_createAccount_argsTeamID(
 	}
 
 	var zeroVal *string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_createAccount_argsRole(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*model.Role, error) {
+	if _, ok := rawArgs["role"]; !ok {
+		var zeroVal *model.Role
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("role"))
+	if tmp, ok := rawArgs["role"]; ok {
+		return ec.unmarshalORole2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx, tmp)
+	}
+
+	var zeroVal *model.Role
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_createApiKey_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_createApiKey_argsAccountID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["accountId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_createApiKey_argsAccountID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["accountId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("accountId"))
+	if tmp, ok := rawArgs["accountId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
 	return zeroVal, nil
 }
 
@@ -196,6 +251,34 @@ func (ec *executionContext) field_Mutation_deleteTeam_argsID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Mutation_revokeApiKey_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_revokeApiKey_argsID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_revokeApiKey_argsID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["id"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+	if tmp, ok := rawArgs["id"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Mutation_updateAccount_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -224,6 +307,11 @@ func (ec *executionContext) field_Mutation_updateAccount_args(ctx context.Contex
 		return nil, err
 	}
 	args["clearTeamId"] = arg4
+	arg5, err := ec.field_Mutation_updateAccount_argsRole(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["role"] = arg5
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_updateAccount_argsID(
@@ -313,6 +401,24 @@ func (ec *executionContext) field_Mutation_updateAccount_argsClearTeamID(
 	}
 
 	var zeroVal *bool
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateAccount_argsRole(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*model.Role, error) {
+	if _, ok := rawArgs["role"]; !ok {
+		var zeroVal *model.Role
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("role"))
+	if tmp, ok := rawArgs["role"]; ok {
+		return ec.unmarshalORole2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx, tmp)
+	}
+
+	var zeroVal *model.Role
 	return zeroVal, nil
 }
 
@@ -494,6 +600,34 @@ func (ec *executionContext) field_Query_accounts_argsOffset(
 	}
 
 	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_apiKeys_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_apiKeys_argsAccountID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["accountId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_apiKeys_argsAccountID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["accountId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("accountId"))
+	if tmp, ok := rawArgs["accountId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
 	return zeroVal, nil
 }
 
@@ -757,6 +891,50 @@ func (ec *executionContext) fieldContext_Account_teamId(_ context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _Account_role(ctx context.Context, field graphql.CollectedField, obj *model.Account) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Account_role(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Role, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(model.Role)
+	fc.Result = res
+	return ec.marshalNRole2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Account_role(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Account",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Role does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Account_createdAt(ctx context.Context, field graphql.CollectedField, obj *model.Account) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Account_createdAt(ctx, field)
 	if err != nil {
@@ -892,6 +1070,8 @@ func (ec *executionContext) fieldContext_AccountConnection_items(_ context.Conte
 				return ec.fieldContext_Account_username(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -1005,7 +1185,7 @@ func (ec *executionContext) _Mutation_createAccount(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().CreateAccount(rctx, fc.Args["email"].(string), fc.Args["username"].(string), fc.Args["teamId"].(*string))
+		return ec.resolvers.Mutation().CreateAccount(rctx, fc.Args["email"].(string), fc.Args["username"].(string), fc.Args["teamId"].(*string), fc.Args["role"].(*model.Role))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1038,6 +1218,8 @@ func (ec *executionContext) fieldContext_Mutation_createAccount(ctx context.Cont
 				return ec.fieldContext_Account_username(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -1074,7 +1256,7 @@ func (ec *executionContext) _Mutation_updateAccount(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().UpdateAccount(rctx, fc.Args["id"].(string), fc.Args["email"].(*string), fc.Args["username"].(*string), fc.Args["teamId"].(*string), fc.Args["clearTeamId"].(*bool))
+		return ec.resolvers.Mutation().UpdateAccount(rctx, fc.Args["id"].(string), fc.Args["email"].(*string), fc.Args["username"].(*string), fc.Args["teamId"].(*string), fc.Args["clearTeamId"].(*bool), fc.Args["role"].(*model.Role))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1107,6 +1289,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAccount(ctx context.Cont
 				return ec.fieldContext_Account_username(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -1178,6 +1362,122 @@ func (ec *executionContext) fieldContext_Mutation_deleteAccount(ctx context.Cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_deleteAccount_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createApiKey(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_createApiKey(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().CreateAPIKey(rctx, fc.Args["accountId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.APIKeySecret)
+	fc.Result = res
+	return ec.marshalNApiKeySecret2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAPIKeySecret(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createApiKey(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "apiKey":
+				return ec.fieldContext_ApiKeySecret_apiKey(ctx, field)
+			case "key":
+				return ec.fieldContext_ApiKeySecret_key(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ApiKeySecret", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createApiKey_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_revokeApiKey(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_revokeApiKey(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().RevokeAPIKey(rctx, fc.Args["id"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_revokeApiKey(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_revokeApiKey_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -1476,6 +1776,8 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 				return ec.fieldContext_Account_username(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -1492,6 +1794,133 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_account_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_me(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_me(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().Me(rctx)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Account)
+	fc.Result = res
+	return ec.marshalNAccount2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccount(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_me(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Account_id(ctx, field)
+			case "email":
+				return ec.fieldContext_Account_email(ctx, field)
+			case "username":
+				return ec.fieldContext_Account_username(ctx, field)
+			case "teamId":
+				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Account_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Account_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_apiKeys(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_apiKeys(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().APIKeys(rctx, fc.Args["accountId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.APIKey)
+	fc.Result = res
+	return ec.marshalNApiKey2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAPIKeyᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_apiKeys(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ApiKey_id(ctx, field)
+			case "accountId":
+				return ec.fieldContext_ApiKey_accountId(ctx, field)
+			case "prefix":
+				return ec.fieldContext_ApiKey_prefix(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_ApiKey_createdAt(ctx, field)
+			case "revokedAt":
+				return ec.fieldContext_ApiKey_revokedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ApiKey", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_apiKeys_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -1794,6 +2223,11 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "teamId":
 			out.Values[i] = ec._Account_teamId(ctx, field, obj)
+		case "role":
+			out.Values[i] = ec._Account_role(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "createdAt":
 			out.Values[i] = ec._Account_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -1916,6 +2350,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "createApiKey":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createApiKey(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "revokeApiKey":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_revokeApiKey(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "createTeam":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_createTeam(ctx, field)
@@ -2011,6 +2459,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_account(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "me":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_me(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "apiKeys":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_apiKeys(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -2168,11 +2660,37 @@ func (ec *executionContext) marshalNAccountConnection2ᚖgithubᚗcomᚋhovanhoa
 	return ec._AccountConnection(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNRole2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx context.Context, v any) (model.Role, error) {
+	var res model.Role
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRole2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx context.Context, sel ast.SelectionSet, v model.Role) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalOAccount2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccount(ctx context.Context, sel ast.SelectionSet, v *model.Account) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Account(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalORole2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx context.Context, v any) (*model.Role, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(model.Role)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalORole2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx context.Context, sel ast.SelectionSet, v *model.Role) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 // endregion ***************************** type.gotpl *****************************

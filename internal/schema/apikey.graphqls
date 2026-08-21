@@ -1,0 +1,67 @@
+"""
+ApiKey is metadata about an issued API key. The plaintext secret is never
+available after creation.
+"""
+type ApiKey {
+    """
+    Unique identifier for the API key
+    """
+    id: ID!
+
+    """
+    Account this key authenticates as
+    """
+    accountId: ID!
+
+    """
+    Non-secret prefix of the key, shown so a user can recognize which key is which
+    """
+    prefix: String!
+
+    """
+    Timestamp the key was created
+    """
+    createdAt: Time!
+
+    """
+    Timestamp the key was revoked, if it has been
+    """
+    revokedAt: Time
+}
+
+"""
+ApiKeySecret is returned only once, at creation time. The key cannot be
+retrieved again after this - if lost, it must be revoked and reissued.
+"""
+type ApiKeySecret {
+    """
+    Metadata about the created key
+    """
+    apiKey: ApiKey!
+
+    """
+    The plaintext API key. Store it now - it will not be shown again.
+    """
+    key: String!
+}
+
+extend type Query {
+    """
+    List API keys for an account. Metadata only; plaintext secrets are never returned.
+    """
+    apiKeys(accountId: ID!): [ApiKey!]!
+}
+
+extend type Mutation {
+    """
+    Issue a new API key for an account, returning the plaintext key once.
+    Issuing a key for another account requires the caller to be an OWNER or ADMIN.
+    """
+    createApiKey(accountId: ID!): ApiKeySecret!
+
+    """
+    Revoke an API key by ID. Revoking a key belonging to another account
+    requires the caller to be an OWNER or ADMIN. Returns true if the key was revoked.
+    """
+    revokeApiKey(id: ID!): Boolean!
+}

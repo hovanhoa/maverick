@@ -163,6 +163,27 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 
 var sources = []*ast.Source{
 	{Name: "../../schema/account.graphqls", Input: `"""
+Role governs what an account is permitted to manage. It is global on the
+account, not per-team, matching the current 1-account-to-0-or-1-team model.
+"""
+enum Role {
+    """
+    Full control: can manage accounts, teams, roles, and API keys.
+    """
+    OWNER
+
+    """
+    Can manage accounts, teams, and API keys, but is not an OWNER.
+    """
+    ADMIN
+
+    """
+    Default role: can manage their own account and API keys only.
+    """
+    MEMBER
+}
+
+"""
 Account represents a user account in the system
 """
 type Account {
@@ -185,6 +206,11 @@ type Account {
     Team this account belongs to, if any
     """
     teamId: ID
+
+    """
+    Role governing what this account can manage
+    """
+    role: Role!
 
     """
     Timestamp the account was created
@@ -228,23 +254,98 @@ extend type Query {
     Get an account by ID
     """
     account(id: ID!): Account
+
+    """
+    The account authenticated by the API key on this request.
+    """
+    me: Account!
 }
 
 extend type Mutation {
     """
-    Create a new account
+    Create a new account. role defaults to MEMBER.
     """
-    createAccount(email: String!, username: String!, teamId: ID): Account!
+    createAccount(email: String!, username: String!, teamId: ID, role: Role): Account!
 
     """
-    Update an existing account. Provide at least one of email, username, teamId, or clearTeamId.
+    Update an existing account. Provide at least one of email, username, teamId,
+    clearTeamId, or role. Changing role requires the caller to be an OWNER or ADMIN.
     """
-    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean): Account!
+    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean, role: Role): Account!
 
     """
-    Delete an account by ID. Returns true if a row was removed.
+    Delete an account by ID. Requires the caller to be an OWNER or ADMIN.
+    Returns true if a row was removed.
     """
     deleteAccount(id: ID!): Boolean!
+}
+`, BuiltIn: false},
+	{Name: "../../schema/apikey.graphqls", Input: `"""
+ApiKey is metadata about an issued API key. The plaintext secret is never
+available after creation.
+"""
+type ApiKey {
+    """
+    Unique identifier for the API key
+    """
+    id: ID!
+
+    """
+    Account this key authenticates as
+    """
+    accountId: ID!
+
+    """
+    Non-secret prefix of the key, shown so a user can recognize which key is which
+    """
+    prefix: String!
+
+    """
+    Timestamp the key was created
+    """
+    createdAt: Time!
+
+    """
+    Timestamp the key was revoked, if it has been
+    """
+    revokedAt: Time
+}
+
+"""
+ApiKeySecret is returned only once, at creation time. The key cannot be
+retrieved again after this - if lost, it must be revoked and reissued.
+"""
+type ApiKeySecret {
+    """
+    Metadata about the created key
+    """
+    apiKey: ApiKey!
+
+    """
+    The plaintext API key. Store it now - it will not be shown again.
+    """
+    key: String!
+}
+
+extend type Query {
+    """
+    List API keys for an account. Metadata only; plaintext secrets are never returned.
+    """
+    apiKeys(accountId: ID!): [ApiKey!]!
+}
+
+extend type Mutation {
+    """
+    Issue a new API key for an account, returning the plaintext key once.
+    Issuing a key for another account requires the caller to be an OWNER or ADMIN.
+    """
+    createApiKey(accountId: ID!): ApiKeySecret!
+
+    """
+    Revoke an API key by ID. Revoking a key belonging to another account
+    requires the caller to be an OWNER or ADMIN. Returns true if the key was revoked.
+    """
+    revokeApiKey(id: ID!): Boolean!
 }
 `, BuiltIn: false},
 	{Name: "../../schema/schema.graphqls", Input: `"""

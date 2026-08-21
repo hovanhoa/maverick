@@ -154,15 +154,15 @@ func TestAccountWithTeamJSONB(t *testing.T) {
 	assert.Equal(t, team.ID, *fetched.TeamID)
 
 	clear := true
-	updated, err := database.UpdateAccount(ctx, account.ID, nil, nil, nil, &clear)
+	updated, err := database.UpdateAccount(ctx, account.ID, nil, nil, nil, &clear, nil)
 	require.NoError(t, err)
 	require.Nil(t, updated.TeamID)
 
-	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, &tid, nil)
+	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, &tid, nil, nil)
 	require.NoError(t, err)
 
 	both := true
-	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, &tid, &both)
+	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, &tid, &both, nil)
 	require.Error(t, err)
 
 	_, _ = database.DeleteAccount(ctx, account.ID)

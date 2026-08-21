@@ -2,7 +2,9 @@ package http
 
 import (
 	"github.com/hovanhoa/llmgateway/internal/api"
+	"github.com/hovanhoa/llmgateway/internal/authz"
 	"github.com/hovanhoa/llmgateway/internal/db"
+	"github.com/hovanhoa/llmgateway/internal/model"
 	"github.com/hovanhoa/llmgateway/pkg/core/http"
 
 	"github.com/benbjohnson/clock"
@@ -51,6 +53,26 @@ func NewService(deps Dependencies) *Service {
 func (s *Service) getGraphQLRouter() http.IRouterGroup {
 	// Set up the router
 	graphqlRouter := s.Service.Router().Group("/graphql")
+
+	// Authenticate the API key on every GraphQL request, then require that
+	// authentication succeeded. Role-specific checks (RequireRole) live in
+	// the resolvers themselves, since a single /graphql route can't be
+	// gated per-operation by HTTP middleware.
+	//
+	// The playground itself is just a static HTML/JS page used to compose
+	// queries - it isn't the GraphQL endpoint, so it's exempt. The actual
+	// query it sends still goes through /graphql/query and is authenticated
+	// like any other request.
+	authorizer := authz.New(authz.Dependencies{Database: s.deps.DB})
+	requireAuth := http.RequireAuth[model.Identity, model.Role]()
+	graphqlRouter.Use(http.AuthMiddleware[model.Identity, model.Role](authorizer))
+	graphqlRouter.Use(func(c *http.Context) {
+		if c.Request.URL.Path == "/graphql/playground" {
+			c.Next()
+			return
+		}
+		requireAuth(c)
+	})
 
 	// Set up the loaders for the GraphQL layer.
 	graphqlRouter.Use(func(c *http.Context) {

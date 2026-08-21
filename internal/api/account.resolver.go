@@ -12,13 +12,13 @@ import (
 )
 
 // CreateAccount is the resolver for the createAccount field.
-func (r *mutationResolver) CreateAccount(ctx context.Context, email string, username string, teamID *string) (*model.Account, error) {
-	return r.createAccount(ctx, email, username, teamID)
+func (r *mutationResolver) CreateAccount(ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.Account, error) {
+	return r.createAccount(ctx, email, username, teamID, role)
 }
 
 // UpdateAccount is the resolver for the updateAccount field.
-func (r *mutationResolver) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool) (*model.Account, error) {
-	return r.updateAccount(ctx, id, email, username, teamID, clearTeamID)
+func (r *mutationResolver) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
+	return r.updateAccount(ctx, id, email, username, teamID, clearTeamID, role)
 }
 
 // DeleteAccount is the resolver for the deleteAccount field.
@@ -34,6 +34,11 @@ func (r *queryResolver) Accounts(ctx context.Context, teamID *string, limit *int
 // Account is the resolver for the account field.
 func (r *queryResolver) Account(ctx context.Context, id string) (*model.Account, error) {
 	return r.getAccount(ctx, id)
+}
+
+// Me is the resolver for the me field.
+func (r *queryResolver) Me(ctx context.Context) (*model.Account, error) {
+	return r.getMe(ctx)
 }
 
 // Mutation returns generated.MutationResolver implementation.
