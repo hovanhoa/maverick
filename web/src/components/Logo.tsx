@@ -1,23 +1,27 @@
 import clsx from 'clsx';
 
-/** Minimalist top-down fighter-jet silhouette - nose up, delta wings, twin tail fins. */
-function JetMark({ className }: { className?: string }) {
+/** Stylized wing/phoenix mark - spread wings fanning into three feather points each side,
+ * meeting at a center point above a three-point tail. */
+function WingMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path
-        d="M12 1L13.1 5.4 21 14 21 16.3 13.7 13.6 14.3 18.6 17.2 20.6 17.2 21.9 12 20.3 6.8 21.9 6.8 20.6 9.7 18.6 10.3 13.6 3 16.3 3 14 10.9 5.4Z"
-        fill="currentColor"
-      />
+    <svg viewBox="0 0 220 110" fill="none" className={className} aria-hidden="true">
+      <g fill="currentColor">
+        <path d="M110,32 L128,42 L216,6 L166,14 L124,32 Z" />
+        <path d="M110,32 L118,46 L172,10 L136,18 L112,40 Z" />
+        <path d="M110,32 L110,50 L138,16 L110,32 Z" />
+        <path d="M110,32 L92,42 L4,6 L54,14 L96,32 Z" />
+        <path d="M110,32 L102,46 L48,10 L84,18 L108,40 Z" />
+        <path d="M110,32 L110,50 L82,16 L110,32 Z" />
+        <path d="M110,36 L92,52 L82,92 L100,58 Z" />
+        <path d="M110,36 L101,58 L110,105 L119,58 Z" />
+        <path d="M110,36 L128,52 L138,92 L120,58 Z" />
+      </g>
     </svg>
   );
 }
 
 export function LogoMark({ className }: { className?: string }) {
-  return (
-    <span className={clsx('inline-flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-900 shadow-sm dark:bg-neutral-700', className)}>
-      <JetMark className="h-4 w-4 text-accent-500" />
-    </span>
-  );
+  return <WingMark className={clsx('h-6 w-auto text-neutral-900 dark:text-white', className)} />;
 }
 
 export function Logo({ className }: { className?: string }) {
