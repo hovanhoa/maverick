@@ -1,14 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <rect width="24" height="24" rx="5" fill="#0f172a" />
-  <g fill="#ffffff" transform="translate(1.62,6.77) scale(0.0943)">
-    <path d="M110,32 L128,42 L216,6 L166,14 L124,32 Z" />
-    <path d="M110,32 L118,46 L172,10 L136,18 L112,40 Z" />
-    <path d="M110,32 L110,50 L138,16 L110,32 Z" />
-    <path d="M110,32 L92,42 L4,6 L54,14 L96,32 Z" />
-    <path d="M110,32 L102,46 L48,10 L84,18 L108,40 Z" />
-    <path d="M110,32 L110,50 L82,16 L110,32 Z" />
-    <path d="M110,36 L92,52 L82,92 L100,58 Z" />
-    <path d="M110,36 L101,58 L110,105 L119,58 Z" />
-    <path d="M110,36 L128,52 L138,92 L120,58 Z" />
-  </g>
+  <text x="12" y="18.5" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="16" fill="#ffffff">M</text>
+  <line x1="6" y1="21" x2="18" y2="3" stroke="#ffffff" stroke-width="1" />
 </svg>
