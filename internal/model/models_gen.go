@@ -72,6 +72,10 @@ type Team struct {
 	CreatedAt time.Time `json:"createdAt"`
 	// Timestamp the team was last updated
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Providers/models this team's API keys may call, as "provider:model"
+	// entries (e.g. "anthropic:*", "openai:gpt-4o"). Empty means unrestricted -
+	// no allowlist has been configured yet.
+	ModelAllowlist []string `json:"modelAllowlist"`
 }
 
 // TeamConnection is a single page of teams

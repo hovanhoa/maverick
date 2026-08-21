@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hovanhoa/llmgateway/internal/model"
+	"github.com/hovanhoa/llmgateway/pkg/core/errors"
 )
 
 func (r *Resolver) createTeam(ctx context.Context, name string) (*model.Team, error) {
@@ -70,4 +71,22 @@ func (r *Resolver) deleteTeam(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	return r.deps.Database.DeleteTeam(ctx, id)
+}
+
+func (r *Resolver) updateTeamModelAllowlist(ctx context.Context, teamID string, allowlist []string) (*model.Team, error) {
+	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+		return nil, err
+	}
+	return r.deps.Database.UpdateTeamModelAllowlist(ctx, teamID, allowlist)
+}
+
+func (r *Resolver) isModelAllowed(ctx context.Context, teamID string, provider string, modelName string) (bool, error) {
+	team, err := r.deps.Database.GetTeamByID(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if team == nil {
+		return false, errors.New("team not found")
+	}
+	return team.IsModelAllowed(provider, modelName), nil
 }

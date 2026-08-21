@@ -21,6 +21,13 @@ type Team {
     Timestamp the team was last updated
     """
     updatedAt: Time!
+
+    """
+    Providers/models this team's API keys may call, as "provider:model"
+    entries (e.g. "anthropic:*", "openai:gpt-4o"). Empty means unrestricted -
+    no allowlist has been configured yet.
+    """
+    modelAllowlist: [String!]!
 }
 
 """
@@ -54,6 +61,13 @@ extend type Query {
     Get a team by ID
     """
     team(id: ID!): Team
+
+    """
+    Reports whether a provider/model pair is permitted by a team's model
+    allowlist. Preview/test helper for Phase 2 - no proxy path enforces this
+    yet, that lands with the Phase 3 provider integration.
+    """
+    isModelAllowed(teamId: ID!, provider: String!, model: String!): Boolean!
 }
 
 extend type Mutation {
@@ -71,4 +85,10 @@ extend type Mutation {
     Delete a team by ID. Returns true if a row was removed.
     """
     deleteTeam(id: ID!): Boolean!
+
+    """
+    Replace a team's model allowlist wholesale. Requires the caller to be an
+    OWNER or ADMIN.
+    """
+    updateTeamModelAllowlist(teamId: ID!, allowlist: [String!]!): Team!
 }

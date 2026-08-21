@@ -56,13 +56,17 @@ Phase 2 onward, to the LLM proxy itself).
 - [internal/api/account_test.go](../internal/api/account_test.go), [team_test.go](../internal/api/team_test.go), [apikey_test.go](../internal/api/apikey_test.go): role-change/delete/create-team/API-key operations denied for non-OWNER/ADMIN callers, allowed for OWNER/ADMIN.
 - [internal/authz/authorizer_test.go](../internal/authz/authorizer_test.go) and [internal/http/service_test.go](../internal/http/service_test.go): Authorizer and end-to-end middleware integration — valid key -> correct Principal/role; missing/invalid/revoked key -> 401.
 
-## Phase 2: Virtual API Keys for the Proxy — Planned
+## Phase 2: Virtual API Keys for the Proxy — Done (data model + CRUD; enforcement lands in Phase 3)
 
 Reuses the `api_key` mechanism from 1c, scoped to the actual LLM proxy path
 (not just the management API):
-1. Devs configure their Cursor/agent with their personal or team API key pointed at the gateway base URL.
-2. Key -> account/team/role resolution reused from Phase 1's `Authorizer`.
-3. Per-key/per-team model allowlist (which providers/models a key may call).
+1. Devs configure their Cursor/agent with their personal or team API key pointed at the gateway base URL - no new mechanism needed, this is exactly the API key from Phase 1c.
+2. Key -> account/team/role resolution reused from Phase 1's `Authorizer` as-is.
+3. Per-team model allowlist (which providers/models a team's keys may call) - decided **per-team**, not per-key, matching the 1-account-to-0-or-1-team model:
+   - `Team.modelAllowlist: [String!]!` - entries are `"provider:model"` (e.g. `"anthropic:*"`, `"openai:gpt-4o"`); empty means unrestricted (no allowlist configured yet). See [internal/schema/team.graphqls](../internal/schema/team.graphqls).
+   - `updateTeamModelAllowlist(teamId, allowlist)` mutation - requires OWNER/ADMIN, same rule as other team management mutations.
+   - `isModelAllowed(teamId, provider, model): Boolean!` query - a preview/test helper; pure matching logic lives in `(*model.Team).IsModelAllowed` ([internal/model/team.go](../internal/model/team.go)) so Phase 3's proxy path can call the same function to actually enforce it.
+   - Decision: this phase only builds the data model and management API. There is no proxy endpoint yet to enforce against (`/v1/chat/completions` is Phase 3) - actual enforcement wires in when that endpoint exists.
 
 ## Phase 3: Provider and API Core — Planned
 

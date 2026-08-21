@@ -15,6 +15,7 @@ export interface Team {
   name: string;
   createdAt: string;
   updatedAt: string;
+  modelAllowlist: string[];
 }
 
 export interface ApiKey {

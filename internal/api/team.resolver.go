@@ -25,6 +25,11 @@ func (r *mutationResolver) DeleteTeam(ctx context.Context, id string) (bool, err
 	return r.deleteTeam(ctx, id)
 }
 
+// UpdateTeamModelAllowlist is the resolver for the updateTeamModelAllowlist field.
+func (r *mutationResolver) UpdateTeamModelAllowlist(ctx context.Context, teamID string, allowlist []string) (*model.Team, error) {
+	return r.updateTeamModelAllowlist(ctx, teamID, allowlist)
+}
+
 // Teams is the resolver for the teams field.
 func (r *queryResolver) Teams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
 	return r.listTeams(ctx, limit, offset)
@@ -33,4 +38,9 @@ func (r *queryResolver) Teams(ctx context.Context, limit *int, offset *int) (*mo
 // Team is the resolver for the team field.
 func (r *queryResolver) Team(ctx context.Context, id string) (*model.Team, error) {
 	return r.getTeam(ctx, id)
+}
+
+// IsModelAllowed is the resolver for the isModelAllowed field.
+func (r *queryResolver) IsModelAllowed(ctx context.Context, teamID string, provider string, model string) (bool, error) {
+	return r.isModelAllowed(ctx, teamID, provider, model)
 }

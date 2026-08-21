@@ -234,3 +234,77 @@ func TestTeamResolver_DeleteTeam_DeniedForMember(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 }
+
+func TestTeamResolver_UpdateTeamModelAllowlist_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "allowlist-rbac-team")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "member-allowlist@example.com", "memberallowlist", nil, nil)
+	require.NoError(t, err)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+
+	_, err = mr.UpdateTeamModelAllowlist(memberCtx, team.ID, []string{"anthropic:*"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestTeamResolver_UpdateTeamModelAllowlist_AllowedForAdmin(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "allowlist-admin-team")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "admin-allowlist@example.com", "adminallowlist", nil, nil)
+	require.NoError(t, err)
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+
+	updated, err := mr.UpdateTeamModelAllowlist(adminCtx, team.ID, []string{"anthropic:*", "openai:gpt-4o"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"anthropic:*", "openai:gpt-4o"}, updated.ModelAllowlist)
+}
+
+func TestQueryResolver_IsModelAllowed(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "is-model-allowed-team")
+	require.NoError(t, err)
+
+	// No allowlist configured yet: everything is allowed.
+	allowed, err := qr.IsModelAllowed(ctx, team.ID, "anthropic", "claude-opus")
+	require.NoError(t, err)
+	assert.True(t, allowed)
+
+	_, err = mr.UpdateTeamModelAllowlist(ctx, team.ID, []string{"anthropic:*"})
+	require.NoError(t, err)
+
+	allowed, err = qr.IsModelAllowed(ctx, team.ID, "anthropic", "claude-opus")
+	require.NoError(t, err)
+	assert.True(t, allowed)
+
+	denied, err := qr.IsModelAllowed(ctx, team.ID, "openai", "gpt-4o")
+	require.NoError(t, err)
+	assert.False(t, denied)
+}
+
+func TestQueryResolver_IsModelAllowed_TeamNotFound(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	qr := &queryResolver{r}
+
+	_, err := qr.IsModelAllowed(ctx, "team_missing", "anthropic", "claude-opus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "team not found")
+}

@@ -168,3 +168,39 @@ func TestAccountWithTeamJSONB(t *testing.T) {
 	_, _ = database.DeleteAccount(ctx, account.ID)
 	_, _ = database.DeleteTeam(ctx, team.ID)
 }
+
+func TestUpdateTeamModelAllowlist(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Allowlist team"})
+	require.NoError(t, err)
+	assert.Empty(t, team.ModelAllowlist, "new teams start with no restriction configured")
+
+	updated, err := database.UpdateTeamModelAllowlist(ctx, team.ID, []string{"anthropic:*", "openai:gpt-4o"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"anthropic:*", "openai:gpt-4o"}, updated.ModelAllowlist)
+
+	fetched, err := database.GetTeamByID(ctx, team.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched)
+	assert.Equal(t, []string{"anthropic:*", "openai:gpt-4o"}, fetched.ModelAllowlist)
+
+	// Replacing with an empty list clears the restriction wholesale.
+	cleared, err := database.UpdateTeamModelAllowlist(ctx, team.ID, []string{})
+	require.NoError(t, err)
+	assert.Empty(t, cleared.ModelAllowlist)
+}
+
+func TestUpdateTeamModelAllowlist_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	_, err := database.UpdateTeamModelAllowlist(ctx, "team_missing", []string{"anthropic:*"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "team not found")
+}

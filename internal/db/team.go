@@ -81,6 +81,45 @@ func (db *Database) UpdateTeam(ctx context.Context, id string, name string) (*mo
 	return existing, nil
 }
 
+// UpdateTeamModelAllowlist replaces a team's model allowlist wholesale.
+func (db *Database) UpdateTeamModelAllowlist(ctx context.Context, id string, allowlist []string) (*model.Team, error) {
+	existing, err := db.GetTeamByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("team not found")
+	}
+
+	existing.ModelAllowlist = allowlist
+	existing.UpdatedAt = time.Now().UTC()
+
+	payload, err := json.Marshal(existing)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal team payload")
+	}
+
+	query, args, err := db.GetSQLClient().Builder().
+		Update("team").
+		Set("team", payload).
+		Set("updated_at", existing.UpdatedAt).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "build update team query")
+	}
+
+	tag, err := db.GetSQLClient().Runner().Exec(ctx, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, errors.New("team not found")
+	}
+
+	return existing, nil
+}
+
 // DeleteTeam removes a team by id. The bool is true when a row was deleted.
 func (db *Database) DeleteTeam(ctx context.Context, id string) (bool, error) {
 	query, args, err := db.GetSQLClient().Builder().
