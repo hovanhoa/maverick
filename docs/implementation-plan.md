@@ -68,24 +68,36 @@ Reuses the `api_key` mechanism from 1c, scoped to the actual LLM proxy path
    - `isModelAllowed(teamId, provider, model): Boolean!` query - a preview/test helper; pure matching logic lives in `(*model.Team).IsModelAllowed` ([internal/model/team.go](../internal/model/team.go)) so Phase 3's proxy path can call the same function to actually enforce it.
    - Decision: this phase only builds the data model and management API. There is no proxy endpoint yet to enforce against (`/v1/chat/completions` is Phase 3) - actual enforcement wires in when that endpoint exists.
 
-## Phase 3: Provider and API Core — Planned
+## Phase 3: Provider and API Core — Done (Claude/OpenAI/Gemini live; Bedrock/Vertex scaffolded)
 
-### `pkg/openai` (OpenAI-Compatible Models)
-1. Canonical request/response structs for chat/completions (incl. streaming chunks).
-2. Validation/normalization helpers; mappers to provider-specific payloads.
-3. Compatibility tests with representative payload fixtures.
+Scope decision going in: build full, tested adapters for the three API-key-based
+providers (Claude, OpenAI, Gemini) and scaffold Bedrock/Vertex AI as
+not-yet-implemented (they need AWS SigV4 and GCP OAuth2 respectively, a
+materially bigger lift than an API key) - see [internal/provider/bedrock](../internal/provider/bedrock/adapter.go)
+and [internal/provider/vertexai](../internal/provider/vertexai/adapter.go).
 
-### `internal/provider` (Abstraction + Adapters)
-1. Provider interface for non-streaming and streaming calls.
-2. Adapter scaffolds for Claude, OpenAI, Gemini, Bedrock, Vertex AI.
-3. Standardized provider error taxonomy (auth, quota, timeout, transient, policy).
-4. Retry/fallback contracts; adapter tests with mocked provider clients.
+### `pkg/openai` (OpenAI-Compatible Models) - Done
+1. Canonical request/response structs for chat/completions, incl. streaming chunks ([types.go](../pkg/openai/types.go)).
+2. `(*ChatCompletionRequest).Validate()` checks model/messages/roles/temperature/top_p/max_tokens ([validate.go](../pkg/openai/validate.go)).
+3. OpenAI-compatible error envelope (`ErrorResponse`/`ErrorType`) so clients written against OpenAI's SDKs work unmodified ([error.go](../pkg/openai/error.go)).
+4. Tests: JSON round-trips and validation edge cases.
 
-### `internal/api` proxy endpoints
-1. `/v1/chat/completions` (OpenAI-compatible) plus minimal admin endpoints.
-2. Middleware order: auth -> request id -> rate/quota precheck -> policy -> handler -> logging.
-3. Streaming response flow via SSE/chunk forwarding.
-4. Consistent error envelope and HTTP status mapping.
+### `internal/provider` (Abstraction + Adapters) - Done
+1. `Provider` interface (`ChatCompletion` + `StreamChatCompletion`) and a `Registry` keyed by provider name ([provider.go](../internal/provider/provider.go)).
+2. Adapters: [anthropic](../internal/provider/anthropic/adapter.go) (Messages API), [openai](../internal/provider/openai/adapter.go) (near pass-through, since the canonical types mirror OpenAI's wire format), [gemini](../internal/provider/gemini/adapter.go) (generateContent/streamGenerateContent, role/system-instruction mapping). [bedrock](../internal/provider/bedrock/adapter.go) and [vertexai](../internal/provider/vertexai/adapter.go) are scaffolds that satisfy `Provider` but return a clear "not implemented" error.
+3. Standardized error taxonomy - `ErrorKind` (auth/quota/timeout/transient/policy/invalid_request/unknown) wrapped in `*provider.Error` ([error.go](../internal/provider/error.go)).
+4. `provider.WithRetry` retries only `ErrorKindTransient` failures with exponential backoff ([retry.go](../internal/provider/retry.go)).
+5. Tests: each real adapter is tested against an `httptest` mock server (request mapping, response mapping, streaming chunk forwarding, and HTTP-status-to-ErrorKind mapping) - no live provider credentials needed to run the suite.
+
+### `internal/proxy` + `internal/http` proxy endpoint - Done
+1. `POST /v1/chat/completions` (OpenAI-compatible), registered in [internal/http/service.go](../internal/http/service.go) behind the same API-key `AuthMiddleware`/`RequireAuth` as the management API (Phase 1/2's `Authorizer`, reused as-is).
+2. Model routing: the request's `model` field is `"provider/model"` (e.g. `"anthropic/claude-3-5-sonnet-20241022"`); [internal/proxy/proxy.go](../internal/proxy/proxy.go) splits it, resolves the provider from the `Registry`, and strips the prefix before calling the adapter.
+3. Phase 2's model allowlist is enforced here: if the caller's account has a team, `team.IsModelAllowed(provider, model)` gates the call (a `policy`-kind error, mapped to 403) before any upstream request is made. No team means unrestricted, per the Phase 2 decision.
+4. Streaming response flow via real SSE: chunks are forwarded as `data: {...}\n\n`, terminated with `data: [DONE]\n\n`, flushed per chunk.
+5. Consistent error envelope: `proxy.ErrorResponseFor` maps `provider.ErrorKind` to both an HTTP status and an OpenAI-compatible `ErrorResponse` body.
+6. Deferred to Phase 4 (doesn't exist yet, so not part of this phase's middleware chain): request-id propagation, rate/quota prechecks, and content policy hooks.
+7. Provider registry is built once in [cmd/api/providers.go](../cmd/api/providers.go) from optional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY` env vars - a provider is simply absent (not present-but-erroring) when unconfigured.
+8. Tests: full HTTP-level integration tests (auth required, non-streaming success with provider-prefix stripping, invalid model format, team-allowlist blocking, and real SSE streaming through the router) using a stub `Provider` - no live provider calls.
 
 ## Phase 4: Governance, Limits, and Metering — Planned
 

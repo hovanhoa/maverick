@@ -55,8 +55,9 @@ func main() {
 
 	// Create the API service with all of its dependencies
 	service := api.NewService(api.Dependencies{
-		DB:    database,
-		Clock: clock.New(),
+		DB:        database,
+		Providers: newProviderRegistry(),
+		Clock:     clock.New(),
 	})
 
 	// Start the service
