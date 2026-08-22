@@ -253,6 +253,77 @@ func asPrincipal(ctx context.Context, accountID string, role model.Role, teamID 
 	return auth.WithPrincipal(ctx, principal.WithRoles(role))
 }
 
+// TestAccountResolver_UpdateAccount_Self_CanEditOwnEmail asserts that a
+// plain MEMBER can update their own email/username with no elevated role -
+// changing your own non-privileged fields is self-service.
+func TestAccountResolver_UpdateAccount_Self_CanEditOwnEmail(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	self, err := mr.CreateAccount(ctx, "self-editor@example.com", "selfeditor", nil, nil)
+	require.NoError(t, err)
+	selfCtx := asPrincipal(ctx, self.ID, model.RoleMember, "")
+
+	newEmail := "self-editor-new@example.com"
+	updated, err := mr.UpdateAccount(selfCtx, self.ID, &newEmail, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, newEmail, updated.Email)
+}
+
+// TestAccountResolver_UpdateAccount_DeniedForUnrelatedMember is a
+// regression test: updateAccount previously ran NO authorization check at
+// all when the caller wasn't changing role (only email/username/team) - a
+// MEMBER of any team could edit any other account's email/username/team
+// with no check whatsoever. It must now require the caller be the target
+// account itself, or OWNER/ADMIN of the target's team.
+func TestAccountResolver_UpdateAccount_DeniedForUnrelatedMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	target, err := mr.CreateAccount(ctx, "target-email-only@example.com", "targetemailonly", nil, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "unrelated-caller@example.com", "unrelatedcaller", nil, nil)
+	require.NoError(t, err)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
+
+	newEmail := "hijacked@example.com"
+	_, err = mr.UpdateAccount(memberCtx, target.ID, &newEmail, nil, nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+
+	// The email must be unchanged.
+	unchanged, err := (&queryResolver{r}).Account(ctx, target.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "target-email-only@example.com", unchanged.Email)
+}
+
+// TestAccountResolver_UpdateAccount_Self_CannotJoinAnotherTeam asserts that
+// even self-service editing doesn't extend to changing your own team
+// membership - that's a privileged, team-scoped action just like a role
+// change, not a cosmetic self-edit.
+func TestAccountResolver_UpdateAccount_Self_CannotJoinAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "self-join-team")
+	require.NoError(t, err)
+
+	self, err := mr.CreateAccount(ctx, "self-joiner@example.com", "selfjoiner", nil, nil)
+	require.NoError(t, err)
+	selfCtx := asPrincipal(ctx, self.ID, model.RoleMember, "")
+
+	_, err = mr.UpdateAccount(selfCtx, self.ID, nil, nil, &team.ID, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
 // TestAccountResolver_UpdateAccount_RoleChange_DeniedForMember asserts the
 // business rule that only OWNER/ADMIN callers may change another account's role.
 func TestAccountResolver_UpdateAccount_RoleChange_DeniedForMember(t *testing.T) {

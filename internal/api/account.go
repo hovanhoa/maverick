@@ -78,13 +78,22 @@ func (r *Resolver) getMe(ctx context.Context) (*model.Account, error) {
 }
 
 func (r *Resolver) updateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
-	if role != nil {
-		// Changing someone's role is scoped by their *current* team - an
-		// OWNER/ADMIN may only do this for members of their own team.
+	// A caller may always edit their own email/username (self-service),
+	// but changing role or team membership - for self or anyone else - is
+	// a privileged action scoped to the target account's *current* team:
+	// an OWNER/ADMIN may only do this for members of their own team.
+	// Editing anyone else's account, for any field, needs the same check -
+	// there is no bare "logged in" tier of access to another account.
+	principal := currentPrincipal(ctx)
+	isSelf := principal != nil && principal.ID == id
+	changesMembership := role != nil || teamID != nil || (clearTeamID != nil && *clearTeamID)
+
+	if changesMembership || !isSelf {
 		if err := requireOwnerOrAdminOfAccountsTeam(ctx, r, id); err != nil {
 			return nil, err
 		}
 	}
+
 	return r.deps.Database.UpdateAccount(ctx, id, email, username, teamID, clearTeamID, role)
 }
 
