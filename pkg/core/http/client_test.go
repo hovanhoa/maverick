@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hovanhoa/llmgateway/pkg/core/log"
 	"github.com/stretchr/testify/assert"
@@ -491,6 +492,142 @@ func TestNewInstrumentedClient_WithoutPathNormalizerUsesDefault(t *testing.T) {
 	var entry map[string]any
 	require.NoError(t, json.Unmarshal([]byte(buf.Logs[0]), &entry))
 	assert.Equal(t, "/users/{id}/orders", entry["endpoint"])
+}
+
+// TestNewInstrumentedClient_StreamsSSEResponseWithoutBuffering is a
+// regression test for a real bug: the transport used to unconditionally
+// io.ReadAll(resp.Body) before returning from RoundTrip, which for a
+// Server-Sent-Events response meant Do() wouldn't return until the
+// *entire* stream had been received - defeating streaming entirely (no
+// incremental delivery) and, for any stream that outlived the client's
+// Timeout, silently turning a mid-stream timeout into a truncated
+// "successful" response (the read error was discarded). A
+// "text/event-stream" response must now pass straight through unbuffered.
+func TestNewInstrumentedClient_StreamsSSEResponseWithoutBuffering(t *testing.T) {
+	setupCaptureLogger(t)
+
+	releaseSecondChunk := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: chunk1\n\n"))
+		flusher.Flush()
+		<-releaseSecondChunk
+		_, _ = w.Write([]byte("data: chunk2\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := NewInstrumentedClient("test-svc")
+	req, err := http.NewRequestWithContext(ctxWithLogger(), http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+
+	doDone := make(chan *http.Response, 1)
+	doErr := make(chan error, 1)
+	go func() {
+		resp, err := client.Do(req)
+		if err != nil {
+			doErr <- err
+			return
+		}
+		doDone <- resp
+	}()
+
+	var resp *http.Response
+	select {
+	case resp = <-doDone:
+	case err := <-doErr:
+		t.Fatalf("Do() failed: %v", err)
+	case <-time.After(2 * time.Second):
+		close(releaseSecondChunk)
+		t.Fatal("Do() did not return promptly for a streaming response - the client is buffering the whole body before returning")
+	}
+	defer resp.Body.Close()
+
+	// Must be able to read the first chunk before the server ever sends
+	// the second one - proves the body isn't being buffered up front.
+	buf := make([]byte, len("data: chunk1\n\n"))
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := io.ReadFull(resp.Body, buf)
+		readDone <- err
+	}()
+	select {
+	case err := <-readDone:
+		require.NoError(t, err)
+		assert.Equal(t, "data: chunk1\n\n", string(buf))
+	case <-time.After(2 * time.Second):
+		close(releaseSecondChunk)
+		t.Fatal("could not read the first SSE chunk before the server sent the second - response body is being buffered")
+	}
+
+	close(releaseSecondChunk)
+}
+
+func TestNewInstrumentedClient_WithoutBodyLogging_OmitsRequestAndResponseBody(t *testing.T) {
+	buf := setupCaptureLogger(t)
+
+	var receivedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"secret":"do-not-log-me"}`))
+	}))
+	defer server.Close()
+
+	client := NewInstrumentedClient("test-svc", WithoutBodyLogging())
+
+	payload := `{"prompt":"do-not-log-me-either"}`
+	req, err := http.NewRequestWithContext(ctxWithLogger(), http.MethodPost, server.URL+"/chat", strings.NewReader(payload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// The actual outbound call and the caller's readable response are both
+	// unaffected - only the log line's body fields are suppressed.
+	assert.JSONEq(t, payload, string(receivedBody))
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"secret":"do-not-log-me"}`, string(respBody))
+
+	require.Len(t, buf.Logs, 1)
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal([]byte(buf.Logs[0]), &entry))
+	assert.Equal(t, "test-svc", entry["externalService"])
+	assert.NotContains(t, buf.Logs[0], "do-not-log-me")
+	assert.Nil(t, entry["requestJson"])
+	assert.Nil(t, entry["requestBody"])
+	assert.Nil(t, entry["responseJson"])
+	assert.Nil(t, entry["responseBody"])
+}
+
+func TestNewInstrumentedClient_WithoutBodyLogging_NonJSONBodyAlsoOmitted(t *testing.T) {
+	buf := setupCaptureLogger(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("plain text secret"))
+	}))
+	defer server.Close()
+
+	client := NewInstrumentedClient("test-svc", WithoutBodyLogging())
+	req, err := http.NewRequestWithContext(ctxWithLogger(), http.MethodPost, server.URL+"/", strings.NewReader("plain text request"))
+	require.NoError(t, err)
+
+	_, err = client.Do(req)
+	require.NoError(t, err)
+
+	require.Len(t, buf.Logs, 1)
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal([]byte(buf.Logs[0]), &entry))
+	assert.Nil(t, entry["requestBody"])
+	assert.Nil(t, entry["responseBody"])
 }
 
 func TestCloneRequestWithBody_ReplaysConsumedBodyViaGetBody(t *testing.T) {

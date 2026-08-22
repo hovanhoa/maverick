@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,8 +13,11 @@ import (
 	"github.com/hovanhoa/llmgateway/internal/provider"
 	"github.com/hovanhoa/llmgateway/internal/proxy"
 	"github.com/hovanhoa/llmgateway/internal/quota"
+	"github.com/hovanhoa/llmgateway/pkg/core/apm"
+	"github.com/hovanhoa/llmgateway/pkg/core/log"
 	"github.com/hovanhoa/llmgateway/pkg/driver/memkv"
 	"github.com/hovanhoa/llmgateway/pkg/openai"
+	prommodel "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -374,6 +378,162 @@ func TestChatCompletion_RecordsUsageEventOnSuccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.RequestCount)
 	assert.Equal(t, 10, summary.TotalTokens)
+}
+
+// counterValue returns the value of a registered Counter/CounterVec metric
+// matching familyName and the given label set, or 0 if no matching series
+// has been recorded yet. Used to assert Phase 5 metrics without needing
+// package-internal access to the unexported metric variables.
+func counterValue(t *testing.T, familyName string, labels map[string]string) float64 {
+	t.Helper()
+	return sampleValue(t, familyName, labels, func(m *prommodel.Metric) float64 {
+		if m.Counter == nil {
+			return 0
+		}
+		return m.Counter.GetValue()
+	})
+}
+
+// histogramSampleCount returns the observation count of a registered
+// Histogram/HistogramVec metric matching familyName and the given label
+// set, or 0 if no matching series has been recorded yet.
+func histogramSampleCount(t *testing.T, familyName string, labels map[string]string) uint64 {
+	t.Helper()
+	return uint64(sampleValue(t, familyName, labels, func(m *prommodel.Metric) float64 {
+		if m.Histogram == nil {
+			return 0
+		}
+		return float64(m.Histogram.GetSampleCount())
+	}))
+}
+
+func sampleValue(t *testing.T, familyName string, labels map[string]string, extract func(*prommodel.Metric) float64) float64 {
+	t.Helper()
+	families, err := apm.GetRegistry().Gather()
+	require.NoError(t, err)
+
+	for _, family := range families {
+		if family.GetName() != familyName {
+			continue
+		}
+		for _, m := range family.Metric {
+			got := make(map[string]string, len(m.Label))
+			for _, l := range m.Label {
+				got[l.GetName()] = l.GetValue()
+			}
+			match := true
+			for k, v := range labels {
+				if got[k] != v {
+					match = false
+					break
+				}
+			}
+			if match {
+				return extract(m)
+			}
+		}
+	}
+	return 0
+}
+
+func TestChatCompletion_QuotaExceeded_IncrementsDeniedMetric(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Metric Quota Team", MonthlyTokenBudget: intPtr(1)})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount, OrgID: team.ID}
+	before := counterValue(t, "llmgateway_quota_denied_total", map[string]string{"team_id": team.ID})
+
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+
+	after := counterValue(t, "llmgateway_quota_denied_total", map[string]string{"team_id": team.ID})
+	assert.Equal(t, before+1, after)
+}
+
+func TestStreamChatCompletion_RecordsStreamDurationMetric(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	ch := make(chan provider.StreamEvent, 1)
+	ch <- provider.StreamEvent{Chunk: &openai.ChatCompletionChunk{ID: "c1"}}
+	close(ch)
+
+	fake := &fakeProvider{name: "anthropic", streamChan: ch}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Stream = true
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount}
+	// model is deliberately not a label on this metric (unbounded/
+	// caller-controlled - see internal/proxy/metrics.go), so the {provider,
+	// status} series here is shared with other parallel tests hitting the
+	// same provider/status combination - assert the count only ever grows
+	// by at least 1, not exactly +1.
+	before := histogramSampleCount(t, "llmgateway_proxy_stream_duration_seconds",
+		map[string]string{"provider": "anthropic", "status": "success"})
+
+	events, err := h.StreamChatCompletion(ctx, "req_test", principal, req)
+	require.NoError(t, err)
+	for range events {
+	}
+
+	require.Eventually(t, func() bool {
+		after := histogramSampleCount(t, "llmgateway_proxy_stream_duration_seconds",
+			map[string]string{"provider": "anthropic", "status": "success"})
+		return after >= before+1
+	}, time.Second, 10*time.Millisecond, "the forwarding goroutine must record the stream duration after the channel closes")
+}
+
+func TestChatCompletion_LogsStructuredCompletionLine(t *testing.T) {
+	originalLogger := log.New()
+	t.Cleanup(func() { log.SetLogger(originalLogger) })
+
+	logger, buf, err := log.NewCaptureLogger()
+	require.NoError(t, err)
+	log.SetLogger(logger)
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Log Line Team"})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount, OrgID: team.ID}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.NoError(t, err)
+
+	var found map[string]any
+	for _, line := range buf.Logs {
+		var entry map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		if entry["message"] == "chat_completion" {
+			found = entry
+			break
+		}
+	}
+	require.NotNil(t, found, "expected a chat_completion log line")
+	assert.Equal(t, "req_test", found["request_id"])
+	assert.Equal(t, "account_1", found["account_id"])
+	assert.Equal(t, team.ID, found["team_id"])
+	assert.Equal(t, "anthropic", found["provider"])
+	assert.Equal(t, "claude-3-5-sonnet", found["model"])
+	assert.Equal(t, "success", found["status"])
+	assert.NotEmpty(t, found["latency"])
 }
 
 func TestErrorResponseFor_UnknownErrorMapsToInternal(t *testing.T) {

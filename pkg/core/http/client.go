@@ -195,6 +195,13 @@ var idSegmentPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$|^[0-9a-fA-F-]{8,}$`,
 )
 
+// isStreamingContentType reports whether a response's Content-Type
+// indicates a streamed body (e.g. Server-Sent Events) that must be read
+// incrementally by the caller, rather than a normal buffered response.
+func isStreamingContentType(contentType string) bool {
+	return strings.Contains(contentType, "text/event-stream")
+}
+
 // normalizePath converts a raw URL path into a templated route pattern
 // suitable for use as a Prometheus metric label. Numeric and ID-like path
 // segments (integers, UUIDs, hex strings) are replaced with "{id}" to keep
@@ -216,6 +223,7 @@ func normalizePath(path string) string {
 
 type instrumentedClientOptions struct {
 	pathNormalizer func(path string) string
+	logBodies      bool
 }
 
 type InstrumentedClientOption func(*instrumentedClientOptions)
@@ -223,6 +231,18 @@ type InstrumentedClientOption func(*instrumentedClientOptions)
 func WithPathNormalizer(fn func(path string) string) InstrumentedClientOption {
 	return func(o *instrumentedClientOptions) {
 		o.pathNormalizer = fn
+	}
+}
+
+// WithoutBodyLogging disables the request/response body logging
+// NewInstrumentedClient otherwise does on every call. Use this for clients
+// whose payloads carry sensitive content (e.g. an LLM provider's prompts
+// and completions) that shouldn't be written to logs verbatim - metrics
+// and the Sentry span/log line (method, endpoint, status, duration) are
+// still recorded either way.
+func WithoutBodyLogging() InstrumentedClientOption {
+	return func(o *instrumentedClientOptions) {
+		o.logBodies = false
 	}
 }
 
@@ -238,6 +258,7 @@ func NewInstrumentedClient(externalService string, opts ...InstrumentedClientOpt
 
 	options := &instrumentedClientOptions{
 		pathNormalizer: normalizePath,
+		logBodies:      true,
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -286,24 +307,47 @@ func NewInstrumentedClient(externalService string, opts ...InstrumentedClientOpt
 				log.Int64("durationMs", int64(duration.Milliseconds())),
 			}
 
-			if len(requestJSON) > 0 {
-				fields = append(fields, log.JSON("requestJson", requestJSON))
-			} else if len(requestBody) > 0 {
-				fields = append(fields, log.String("requestBody", string(requestBody)))
+			if options.logBodies {
+				if len(requestJSON) > 0 {
+					fields = append(fields, log.JSON("requestJson", requestJSON))
+				} else if len(requestBody) > 0 {
+					fields = append(fields, log.String("requestBody", string(requestBody)))
+				}
 			}
 
-			if resp != nil && resp.Body != nil {
-				// Read the response body and reset it
-				responseJSON, _ := io.ReadAll(resp.Body)
+			if resp != nil && resp.Body != nil && isStreamingContentType(resp.Header.Get("Content-Type")) {
+				// A streaming (e.g. SSE) response must never be buffered
+				// here - the caller reads resp.Body incrementally as
+				// events arrive, often well past this RoundTrip returning
+				// (that's the whole point of a stream). Buffering it would
+				// force the caller to wait for the entire stream to finish
+				// before seeing anything, and a body this size/duration
+				// could easily outlive the client's overall Timeout,
+				// which would otherwise turn a real timeout into a
+				// silently truncated "successful" response once resp.Body
+				// is replaced by a static buffer. Metrics/logging above
+				// (method, endpoint, status, time-to-headers) still apply;
+				// only the body itself is skipped.
+				fields = append(fields, log.Bool("streamingBodySkipped", true))
+			} else if resp != nil && resp.Body != nil {
+				// Read the response body and reset it - always required so
+				// the caller still gets a readable body back, regardless of
+				// whether it's also logged below.
+				responseJSON, readErr := io.ReadAll(resp.Body)
 				_ = resp.Body.Close()
 				resp.Body = io.NopCloser(bytes.NewBuffer(responseJSON))
+				if readErr != nil {
+					fields = append(fields, log.Error(readErr))
+				}
 
-				// Log the response body as JSON if the content type is application/json
-				contentType := resp.Header.Get("Content-Type")
-				if strings.Contains(contentType, "application/json") {
-					fields = append(fields, log.JSON("responseJson", responseJSON))
-				} else {
-					fields = append(fields, log.String("responseBody", string(responseJSON)))
+				if options.logBodies {
+					// Log the response body as JSON if the content type is application/json
+					contentType := resp.Header.Get("Content-Type")
+					if strings.Contains(contentType, "application/json") {
+						fields = append(fields, log.JSON("responseJson", responseJSON))
+					} else {
+						fields = append(fields, log.String("responseBody", string(responseJSON)))
+					}
 				}
 			}
 

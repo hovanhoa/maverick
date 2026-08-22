@@ -51,6 +51,79 @@ func TestGetSessionJWTCookieID(t *testing.T) {
 	})
 }
 
+// TestRequestLogger_RedactsSensitiveHeaders asserts that Authorization and
+// Cookie header values are never written to the canonical request log
+// verbatim - only "[REDACTED]" should appear, never the raw secret.
+func TestRequestLogger_RedactsSensitiveHeaders(t *testing.T) {
+	originalLogger := log.New()
+	t.Cleanup(func() { log.SetLogger(originalLogger) })
+
+	logger, buf, err := log.NewCaptureLogger()
+	require.NoError(t, err)
+	log.SetLogger(logger)
+
+	service := http.NewService()
+	service.Router().GET("/", http.HandleAPIResponse(func(ctx context.Context, req *http.HandlerRequest[struct{}]) (*http.HandlerResponse, *http.Error) {
+		return http.HandlerResponseJSON(map[string]string{"ok": "true"}), nil
+	}))
+
+	testhttp.NewHTTPTester(t, service).Run(
+		testhttp.NewRequestBuilder("GET", "/").
+			WithHeader("Authorization", "Bearer super-secret-api-key").
+			WithHeader("Cookie", "session=super-secret-session").
+			Build(),
+	).AssertStatusCode(http.StatusOK)
+
+	require.Len(t, buf.Logs, 1)
+	assert.NotContains(t, buf.Logs[0], "super-secret-api-key")
+	assert.NotContains(t, buf.Logs[0], "super-secret-session")
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal([]byte(buf.Logs[0]), &entry))
+	request := entry["request"].(map[string]any)
+	headers := request["headers"].(map[string]any)
+	assert.Equal(t, []any{"[REDACTED]"}, headers["Authorization"])
+	assert.Equal(t, []any{"[REDACTED]"}, headers["Cookie"])
+}
+
+// TestWithBodyLogDropper_OmitsBodyButKeepsCanonicalLine asserts that a
+// route opted into WithBodyLogDropper still gets its canonical log line
+// (status, latency), just without the request/response JSON body fields -
+// for routes whose bodies carry sensitive content (e.g. LLM
+// prompts/completions).
+func TestWithBodyLogDropper_OmitsBodyButKeepsCanonicalLine(t *testing.T) {
+	originalLogger := log.New()
+	t.Cleanup(func() { log.SetLogger(originalLogger) })
+
+	logger, buf, err := log.NewCaptureLogger()
+	require.NoError(t, err)
+	log.SetLogger(logger)
+
+	service := http.NewService(http.WithBodyLogDropper(func(c *http.Context) bool {
+		return c.FullPath() == "/sensitive"
+	}))
+	service.Router().POST("/sensitive", http.HandleAPIResponse(func(ctx context.Context, req *http.HandlerRequest[struct{}]) (*http.HandlerResponse, *http.Error) {
+		return http.HandlerResponseJSON(map[string]string{"completion": "do-not-log-me"}), nil
+	}))
+
+	testhttp.NewHTTPTester(t, service).Run(
+		testhttp.NewRequestBuilder("POST", "/sensitive").
+			WithBodyJSON(map[string]string{"prompt": "do-not-log-me-either"}).
+			Build(),
+	).AssertStatusCode(http.StatusOK)
+
+	require.Len(t, buf.Logs, 1)
+	assert.NotContains(t, buf.Logs[0], "do-not-log-me")
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal([]byte(buf.Logs[0]), &entry))
+	assert.Equal(t, "CANONICAL-RESPONSE-LINE", entry["message"])
+	assert.Nil(t, entry["requestJson"])
+	assert.Nil(t, entry["responseJson"])
+	response := entry["response"].(map[string]any)
+	assert.EqualValues(t, http.StatusOK, response["statusCode"])
+}
+
 func TestPanicHandler(t *testing.T) {
 	// Get the original logger
 	originalLogger := log.New()

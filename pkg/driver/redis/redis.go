@@ -59,6 +59,12 @@ func New(ctx context.Context, config Config) (*Database, error) {
 		Password:  config.Pass,
 		DB:        int(config.DB),
 		TLSConfig: tlsConfig,
+		// Unset otherwise (no cap at all), which lets a connection go
+		// stale behind a load balancer/proxy that silently drops
+		// long-lived idle TCP connections. DialTimeout/ReadTimeout/
+		// WriteTimeout/PoolSize are left at the client's own defaults
+		// (5s/3s/3s/10*GOMAXPROCS), which are already reasonable.
+		MaxConnAge: 1 * time.Hour,
 	})
 	client.AddHook(NewTracingHook(config))
 

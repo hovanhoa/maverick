@@ -27,7 +27,13 @@ type Service struct {
 
 	// if any function in this list returns true, the log should be dropped.
 	dropLogs []func(c *Context) bool
-	healthFn func() error
+	// if any function in this list returns true, the request/response body
+	// is omitted from the canonical log line, but the line itself (status,
+	// latency, etc.) is still logged. Use this for routes whose bodies
+	// carry sensitive content (e.g. LLM prompts/completions) that
+	// shouldn't be written to logs verbatim.
+	dropBodyLogs []func(c *Context) bool
+	healthFn     func() error
 
 	isStopping bool
 }

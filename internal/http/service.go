@@ -14,6 +14,12 @@ import (
 	"github.com/benbjohnson/clock"
 )
 
+// chatCompletionsPath is the LLM proxy route - its request/response bodies
+// carry raw prompt/completion content, so the canonical request log omits
+// them (see WithBodyLogDropper below) rather than writing user content to
+// logs verbatim.
+const chatCompletionsPath = "/v1/chat/completions"
+
 // Dependencies of the API service.
 type Dependencies struct {
 	DB *db.Database
@@ -60,6 +66,9 @@ func NewService(deps Dependencies) *Service {
 
 				return false
 			}),
+			http.WithBodyLogDropper(func(c *http.Context) bool {
+				return c.FullPath() == chatCompletionsPath
+			}),
 		),
 		deps: deps,
 		proxyHandler: proxy.NewHandler(proxy.Dependencies{
@@ -96,6 +105,7 @@ func (s *Service) getGraphQLRouter(authorizer *authz.Authorizer) http.IRouterGro
 		}
 		requireAuth(c)
 	})
+	graphqlRouter.Use(observabilityMiddleware)
 
 	// Set up the loaders for the GraphQL layer.
 	graphqlRouter.Use(func(c *http.Context) {
@@ -115,7 +125,7 @@ func (s *Service) getChatRouter(authorizer *authz.Authorizer) http.IRouterGroup 
 	chatRouter := s.Service.Router().Group("/v1")
 	chatRouter.Use(http.AuthMiddleware[model.Identity, model.Role](authorizer))
 	chatRouter.Use(http.RequireAuth[model.Identity, model.Role]())
-	chatRouter.Use(requestIDMiddleware)
+	chatRouter.Use(observabilityMiddleware)
 	return chatRouter
 }
 

@@ -79,3 +79,15 @@ func WithLogDropper(fn func(c *Context) bool) ServiceOption {
 		s.dropLogs = append(s.dropLogs, fn)
 	}
 }
+
+// WithBodyLogDropper configures which requests should have their
+// request/response body omitted from the canonical log line, while still
+// logging the line itself (status, latency, headers). Use this for routes
+// whose bodies carry sensitive content that shouldn't be written to logs
+// verbatim (e.g. LLM prompts/completions), as opposed to WithLogDropper
+// which drops the entire log line.
+func WithBodyLogDropper(fn func(c *Context) bool) ServiceOption {
+	return func(s *Service) {
+		s.dropBodyLogs = append(s.dropBodyLogs, fn)
+	}
+}

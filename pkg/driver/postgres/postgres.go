@@ -142,6 +142,13 @@ func getConn(ctx context.Context, config Config) (*pgxpool.Pool, error) {
 	pgxConfig.MaxConns = 25
 	pgxConfig.MaxConnIdleTime = 5 * time.Minute
 	pgxConfig.MinIdleConns = 4
+	// MaxConnLifetime and ConnectTimeout were previously unset (pgx
+	// defaults to no lifetime cap and no connect deadline at all), which
+	// lets a connection silently go stale behind a load balancer/proxy
+	// that drops idle TCP connections, and lets a bad network path hang a
+	// connection attempt indefinitely. Both are now bounded explicitly.
+	pgxConfig.MaxConnLifetime = 1 * time.Hour
+	pgxConfig.ConnConfig.ConnectTimeout = 5 * time.Second
 	pgxConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	// Greedily clean up idle connections in test mode and set higher max connections limit

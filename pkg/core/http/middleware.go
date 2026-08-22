@@ -23,6 +23,28 @@ const (
 	AuthorizationHeaderKey string = "Authorization"
 )
 
+// sensitiveHeaderNames are header keys whose values must never be written
+// to logs verbatim (bearer tokens, session cookies).
+var sensitiveHeaderNames = map[string]bool{
+	"authorization": true,
+	"cookie":        true,
+	"set-cookie":    true,
+}
+
+// redactHeaders returns a copy of headers with the value of any
+// sensitive header (see sensitiveHeaderNames) replaced by "[REDACTED]",
+// so the canonical request log never contains a bearer token, API key, or
+// session cookie.
+func redactHeaders(headers http.Header) http.Header {
+	redacted := headers.Clone()
+	for name := range redacted {
+		if sensitiveHeaderNames[strings.ToLower(name)] {
+			redacted[name] = []string{"[REDACTED]"}
+		}
+	}
+	return redacted
+}
+
 func MetricsHandler() gin.HandlerFunc {
 	// Return a handler that measures the request information
 	return func(c *gin.Context) {
@@ -106,6 +128,17 @@ func RequestLogger(s *Service) gin.HandlerFunc {
 			responseJSON = nil
 		}
 
+		// Some routes carry sensitive content in their body (e.g. LLM
+		// prompts/completions) that shouldn't be written to logs verbatim -
+		// still log the canonical line, just without the body fields.
+		for _, shouldDropBody := range s.dropBodyLogs {
+			if shouldDropBody(c) {
+				requestJSON = nil
+				responseJSON = nil
+				break
+			}
+		}
+
 		// If there was an error, add it to the context
 		err, _ := c.Get(string(RequestErrorContextKey))
 
@@ -115,13 +148,13 @@ func RequestLogger(s *Service) gin.HandlerFunc {
 				"clientId": c.ClientIP(),
 				"method":   c.Request.Method,
 				"path":     path,
-				"headers":  c.Request.Header,
+				"headers":  redactHeaders(c.Request.Header),
 			}),
 			log.Any("requestJson", requestJSON),
 			log.Any("response", map[string]any{
 				"latency":    time.Since(start),
 				"statusCode": c.Writer.Status(),
-				"headers":    c.Writer.Header(),
+				"headers":    redactHeaders(c.Writer.Header()),
 			}),
 			log.Any("responseJson", responseJSON),
 			log.Any("error", err),

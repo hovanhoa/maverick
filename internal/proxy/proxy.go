@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hovanhoa/llmgateway/internal/db"
 	"github.com/hovanhoa/llmgateway/internal/model"
@@ -123,6 +124,7 @@ func (h *Handler) prepare(ctx context.Context, requestID string, principal *Prin
 		quotaWindow, err = h.deps.Quota.Reserve(ctx, team.ID, team.MonthlyTokenBudget, estimate)
 		if err != nil {
 			if err == quota.ErrExceeded {
+				quotaDeniedTotal.WithLabelValues(team.ID).Inc()
 				return nil, provider.NewError(providerName, provider.ErrorKindQuota,
 					"team monthly token budget exceeded", nil)
 			}
@@ -161,6 +163,31 @@ func (h *Handler) logPolicyDecision(ctx context.Context, requestID string, decis
 		log.String("action", string(decision.Action)),
 		log.String("reason_code", decision.ReasonCode),
 	)
+}
+
+// logCompletion emits the one structured log line Phase 5 calls for per
+// proxy call: request id, account, team, provider, model, latency, and
+// status. call may be nil if prepare() itself failed (e.g. invalid model
+// format), in which case provider/model are simply omitted.
+func (h *Handler) logCompletion(ctx context.Context, requestID string, principal *Principal, call *preparedCall, start time.Time, err error) {
+	fields := []log.Field{
+		log.String("request_id", requestID),
+		log.String("account_id", principal.ID),
+		log.Duration("latency", time.Since(start)),
+	}
+	if principal.OrgID != "" {
+		fields = append(fields, log.String("team_id", principal.OrgID))
+	}
+	if call != nil {
+		fields = append(fields, log.String("provider", call.providerName), log.String("model", call.modelName))
+	}
+
+	if err != nil {
+		fields = append(fields, log.String("status", "error"), log.Error(err))
+		log.FromContext(ctx).Error("chat_completion", fields...)
+		return
+	}
+	log.FromContext(ctx).Info("chat_completion", append(fields, log.String("status", "success"))...)
 }
 
 // releaseQuota undoes a reservation for a call that never reached (or
@@ -202,8 +229,11 @@ func (h *Handler) recordUsage(ctx context.Context, requestID string, principal *
 
 // ChatCompletion handles a single non-streaming chat completion call.
 func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principal *Principal, req *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
+	start := time.Now()
+
 	call, err := h.prepare(ctx, requestID, principal, req)
 	if err != nil {
+		h.logCompletion(ctx, requestID, principal, nil, start, err)
 		return nil, err
 	}
 
@@ -212,10 +242,12 @@ func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principa
 	})
 	if err != nil {
 		h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
+		h.logCompletion(ctx, requestID, principal, call, start, err)
 		return nil, err
 	}
 
 	h.recordUsage(ctx, requestID, principal, call, resp)
+	h.logCompletion(ctx, requestID, principal, call, start, nil)
 	return resp, nil
 }
 
@@ -229,26 +261,40 @@ func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principa
 // streaming calls yet) rather than reconciling to a real number. A failed
 // stream still fully releases its reservation.
 func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, principal *Principal, req *openai.ChatCompletionRequest) (<-chan provider.StreamEvent, error) {
+	start := time.Now()
+
 	call, err := h.prepare(ctx, requestID, principal, req)
 	if err != nil {
+		h.logCompletion(ctx, requestID, principal, nil, start, err)
 		return nil, err
 	}
 
 	upstream, err := call.provider.StreamChatCompletion(ctx, call.upstream)
 	if err != nil {
 		h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
+		h.logCompletion(ctx, requestID, principal, call, start, err)
 		return nil, err
 	}
 
 	events := make(chan provider.StreamEvent)
 	go func() {
 		defer close(events)
+
+		var streamErr error
 		for ev := range upstream {
 			if ev.Err != nil {
+				streamErr = ev.Err
 				h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
 			}
 			events <- ev
 		}
+
+		status := "success"
+		if streamErr != nil {
+			status = "error"
+		}
+		streamDurationSeconds.WithLabelValues(call.providerName, status).Observe(time.Since(start).Seconds())
+		h.logCompletion(ctx, requestID, principal, call, start, streamErr)
 	}()
 
 	return events, nil
