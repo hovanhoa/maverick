@@ -35,13 +35,42 @@ func (r *Resolver) createAccount(ctx context.Context, email string, username str
 	return r.deps.Database.CreateAccount(ctx, account)
 }
 
+// listAccounts is team-scoped: an explicit teamId still requires membership
+// in that team (requireTeamMember), and omitting it doesn't mean "every
+// account on the platform" - there's no platform-admin concept for that to
+// mean anything safe - it defaults to the caller's own team's roster. An
+// unaffiliated caller has no team roster to default to, but should still
+// see themselves rather than a page that omits even their own account.
 func (r *Resolver) listAccounts(ctx context.Context, teamID *string, limit *int, offset *int) (*model.AccountConnection, error) {
 	resolvedLimit, resolvedOffset, err := resolvePage(limit, offset)
 	if err != nil {
 		return nil, err
 	}
 
-	accounts, total, err := r.deps.Database.ListAccounts(ctx, teamID, resolvedLimit, resolvedOffset)
+	effectiveTeamID := teamID
+	if effectiveTeamID != nil {
+		if err := requireTeamMember(ctx, *effectiveTeamID); err != nil {
+			return nil, err
+		}
+	} else {
+		principal := currentPrincipal(ctx)
+		if principal == nil {
+			return &model.AccountConnection{Items: []model.Account{}, TotalCount: 0, HasNextPage: false}, nil
+		}
+		if principal.OrgID == "" {
+			self, err := r.deps.Database.GetAccountByID(ctx, principal.ID)
+			if err != nil {
+				return nil, err
+			}
+			if self == nil || resolvedOffset > 0 {
+				return &model.AccountConnection{Items: []model.Account{}, TotalCount: 0, HasNextPage: false}, nil
+			}
+			return &model.AccountConnection{Items: []model.Account{*self}, TotalCount: 1, HasNextPage: false}, nil
+		}
+		effectiveTeamID = &principal.OrgID
+	}
+
+	accounts, total, err := r.deps.Database.ListAccounts(ctx, effectiveTeamID, resolvedLimit, resolvedOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +82,26 @@ func (r *Resolver) listAccounts(ctx context.Context, teamID *string, limit *int,
 	}, nil
 }
 
+// getAccount is readable by the account itself, or by anyone belonging to
+// the same team - an unaffiliated target (no team) has no boundary to
+// enforce, so it stays readable by any authenticated caller, matching the
+// pre-existing behavior for that case.
 func (r *Resolver) getAccount(ctx context.Context, id string) (*model.Account, error) {
-	return r.deps.Database.GetAccountByID(ctx, id)
+	if principal := currentPrincipal(ctx); principal != nil && principal.ID == id {
+		return r.deps.Database.GetAccountByID(ctx, id)
+	}
+
+	account, err := r.deps.Database.GetAccountByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || account.TeamID == nil {
+		return account, nil
+	}
+	if err := requireTeamMember(ctx, *account.TeamID); err != nil {
+		return nil, err
+	}
+	return account, nil
 }
 
 // getMe returns the account backing the principal authenticated on this

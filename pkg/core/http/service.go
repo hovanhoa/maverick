@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -33,9 +34,32 @@ type Service struct {
 	// carry sensitive content (e.g. LLM prompts/completions) that
 	// shouldn't be written to logs verbatim.
 	dropBodyLogs []func(c *Context) bool
-	healthFn     func() error
 
+	// healthMu guards healthFn/isStopping: Start() assigns a default
+	// healthFn ~500ms after the server starts accepting connections, and
+	// GracefulStop reassigns both from the shutdown path, concurrently
+	// with the /healthz handler reading them on every request.
+	healthMu   sync.RWMutex
+	healthFn   func() error
 	isStopping bool
+}
+
+func (s *Service) getHealthFn() func() error {
+	s.healthMu.RLock()
+	defer s.healthMu.RUnlock()
+	return s.healthFn
+}
+
+func (s *Service) setHealthFn(fn func() error) {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	s.healthFn = fn
+}
+
+func (s *Service) setStopping(stopping bool) {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	s.isStopping = stopping
 }
 
 // HealthFn describes the type signature of a function that performs a health
@@ -88,8 +112,8 @@ func NewService(opts ...ServiceOption) *Service {
 	// Handle health checking
 	engine.GET("/healthz", func(c *gin.Context) {
 		healthErr := fmt.Errorf("server uninitialized")
-		if s.healthFn != nil {
-			healthErr = s.healthFn()
+		if healthFn := s.getHealthFn(); healthFn != nil {
+			healthErr = healthFn()
 		}
 
 		status := http.StatusOK
@@ -142,12 +166,12 @@ func (s *Service) NoRoute(handlers ...HandlerFunc) {
 }
 
 // Router returns the underlying Gin instance to configure route handlers
-func (s Service) Router() *Router {
+func (s *Service) Router() *Router {
 	return s.router
 }
 
 // Handler returns the underlying HTTP handler for the configured routes
-func (s Service) Handler() http.Handler {
+func (s *Service) Handler() http.Handler {
 	return s.engine
 }
 
@@ -166,8 +190,8 @@ func (s *Service) Start() error {
 
 	select {
 	case <-time.After(500 * time.Millisecond):
-		if s.healthFn == nil {
-			s.healthFn = func() error { return nil }
+		if s.getHealthFn() == nil {
+			s.setHealthFn(func() error { return nil })
 		}
 	case err := <-chMain:
 		return err
@@ -182,10 +206,10 @@ func (s *Service) Start() error {
 // to indicate it shouldn't receive any more traffic. Then it calls the http server's
 // Shutdown function which waits until all requests have drained before returning.
 func (s *Service) GracefulStop() error {
-	s.isStopping = true
-	s.healthFn = func() error {
+	s.setStopping(true)
+	s.setHealthFn(func() error {
 		return fmt.Errorf("server is shutting down")
-	}
+	})
 
 	// TODO: this currently immediately refuses new connections, which means
 	// our service mesh may not have enough time to react to the instance
@@ -232,5 +256,7 @@ func (s *Service) GetServer() *http.Server {
 
 // IsStopping returns true if the service is in the process of shutting down
 func (s *Service) IsStopping() bool {
+	s.healthMu.RLock()
+	defer s.healthMu.RUnlock()
 	return s.isStopping
 }

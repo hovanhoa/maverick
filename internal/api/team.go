@@ -37,22 +37,34 @@ func (r *Resolver) createTeam(ctx context.Context, name string) (*model.Team, er
 	return team, nil
 }
 
+// listTeams is team-scoped: there's no platform-admin concept, so this
+// can't mean "every team on the platform" - it returns the caller's own
+// team (today, an account belongs to at most one), or an empty page for
+// an unaffiliated caller. Pagination is kept in the response shape for API
+// stability even though it's operating over at most one item.
 func (r *Resolver) listTeams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
-	resolvedLimit, resolvedOffset, err := resolvePage(limit, offset)
+	_, resolvedOffset, err := resolvePage(limit, offset)
 	if err != nil {
 		return nil, err
 	}
 
-	teams, total, err := r.deps.Database.ListTeams(ctx, resolvedLimit, resolvedOffset)
+	principal := currentPrincipal(ctx)
+	if principal == nil || principal.OrgID == "" {
+		return &model.TeamConnection{Items: []model.Team{}, TotalCount: 0, HasNextPage: false}, nil
+	}
+
+	team, err := r.deps.Database.GetTeamByID(ctx, principal.OrgID)
 	if err != nil {
 		return nil, err
 	}
+	if team == nil {
+		return &model.TeamConnection{Items: []model.Team{}, TotalCount: 0, HasNextPage: false}, nil
+	}
+	if resolvedOffset > 0 {
+		return &model.TeamConnection{Items: []model.Team{}, TotalCount: 1, HasNextPage: false}, nil
+	}
 
-	return &model.TeamConnection{
-		Items:       teams,
-		TotalCount:  total,
-		HasNextPage: hasNextPage(resolvedOffset, len(teams), total),
-	}, nil
+	return &model.TeamConnection{Items: []model.Team{*team}, TotalCount: 1, HasNextPage: false}, nil
 }
 
 func (r *Resolver) getTeam(ctx context.Context, id string) (*model.Team, error) {

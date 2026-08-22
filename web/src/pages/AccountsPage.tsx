@@ -59,7 +59,7 @@ export function AccountsPage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-xl font-semibold text-neutral-900 dark:text-white">Accounts</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Every account, its team, and its role.</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Your team's accounts, and your own if you have no team yet.</p>
         </div>
         <Button variant="primary" onClick={() => setCreateOpen(true)}>
           <PlusIcon className="h-4 w-4" />

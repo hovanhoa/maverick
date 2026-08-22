@@ -105,6 +105,55 @@ func TestAccountResolver_Account_NotFound(t *testing.T) {
 	assert.Nil(t, none)
 }
 
+// TestAccountResolver_Account_DeniedForNonMember asserts that getAccount is
+// team-scoped for a team-affiliated target: an outsider can't read another
+// team's roster one account at a time even if they know the id.
+func TestAccountResolver_Account_DeniedForNonMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "account-read-team")
+	require.NoError(t, err)
+	target, err := mr.CreateAccount(ctx, "target-read@example.com", "targetread", &team.ID, nil)
+	require.NoError(t, err)
+
+	outsider, err := mr.CreateAccount(ctx, "outsider-read@example.com", "outsiderread", nil, nil)
+	require.NoError(t, err)
+	outsiderCtx := asPrincipal(ctx, outsider.ID, model.RoleOwner, "team_someone_elses")
+
+	_, err = qr.Account(outsiderCtx, target.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+// TestAccountResolver_Account_ReadableByTeammate is the converse: any
+// member of the same team (not just OWNER/ADMIN) can read a teammate's
+// account - read access within a team isn't role-gated, only membership.
+func TestAccountResolver_Account_ReadableByTeammate(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "account-read-teammate-team")
+	require.NoError(t, err)
+	target, err := mr.CreateAccount(ctx, "target-teammate@example.com", "targetteammate", &team.ID, nil)
+	require.NoError(t, err)
+
+	teammate, err := mr.CreateAccount(ctx, "teammate-reader@example.com", "teammatereader", &team.ID, nil)
+	require.NoError(t, err)
+	teammateCtx := asPrincipal(ctx, teammate.ID, model.RoleMember, team.ID)
+
+	got, err := qr.Account(teammateCtx, target.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, target.ID, got.ID)
+}
+
 // TestAccountResolver_DeleteAccount_NotFound returns false without error.
 func TestAccountResolver_DeleteAccount_NotFound(t *testing.T) {
 	t.Parallel()
@@ -159,6 +208,31 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 	assert.Nil(t, final)
 }
 
+// TestAccountResolver_Accounts asserts listAccounts is team-scoped: an
+// explicit teamId still requires membership in that team, and omitting it
+// isn't a platform-wide directory - it defaults to the caller's own team
+// (or nothing, for an unaffiliated caller).
+// TestAccountResolver_Accounts_UnaffiliatedCallerSeesSelf asserts that an
+// unaffiliated caller (no team to default to) still sees themselves on an
+// unfiltered listAccounts, rather than a page that omits even their own
+// account.
+func TestAccountResolver_Accounts_UnaffiliatedCallerSeesSelf(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	self, err := mr.CreateAccount(ctx, "unaffiliated-self@example.com", "unaffiliatedself", nil, nil)
+	require.NoError(t, err)
+	selfCtx := asPrincipal(ctx, self.ID, model.RoleOwner, "")
+
+	page, err := qr.Accounts(selfCtx, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, self.ID, page.Items[0].ID)
+}
+
 func TestAccountResolver_Accounts(t *testing.T) {
 	t.Parallel()
 
@@ -166,6 +240,8 @@ func TestAccountResolver_Accounts(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
+	// The default test principal is unaffiliated - no default team to fall
+	// back to, so an unfiltered query returns nothing.
 	empty, err := qr.Accounts(ctx, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, empty)
@@ -180,19 +256,24 @@ func TestAccountResolver_Accounts(t *testing.T) {
 	_, err = mr.CreateAccount(ctx, "member@example.com", "member", &team.ID, nil)
 	require.NoError(t, err)
 
-	all, err := qr.Accounts(ctx, nil, nil, nil)
-	require.NoError(t, err)
-	require.Len(t, all.Items, 2)
-	assert.Equal(t, 2, all.TotalCount)
-	assert.False(t, all.HasNextPage)
-	assert.Equal(t, "member", all.Items[0].Username)
-	assert.Equal(t, "solo", all.Items[1].Username)
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
 
-	byTeam, err := qr.Accounts(ctx, &team.ID, nil, nil)
+	byTeam, err := qr.Accounts(teamCtx, &team.ID, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, byTeam.Items, 1)
 	assert.Equal(t, 1, byTeam.TotalCount, "totalCount must respect the team filter")
 	assert.Equal(t, "member", byTeam.Items[0].Username)
+
+	// Unfiltered, but the caller now belongs to a team - defaults to it.
+	defaulted, err := qr.Accounts(teamCtx, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, defaulted.Items, 1)
+	assert.Equal(t, "member", defaulted.Items[0].Username)
+
+	// A team the caller doesn't belong to is still off-limits.
+	_, err = qr.Accounts(ctx, &team.ID, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
 }
 
 func TestAccountResolver_Accounts_Pagination(t *testing.T) {
@@ -202,13 +283,18 @@ func TestAccountResolver_Accounts_Pagination(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
+	team, err := mr.CreateTeam(ctx, "resolver-accounts-pagination-team")
+	require.NoError(t, err)
+
 	for _, name := range []string{"one", "two", "three"} {
-		_, err := mr.CreateAccount(ctx, name+"@example.com", name, nil, nil)
+		_, err := mr.CreateAccount(ctx, name+"@example.com", name, &team.ID, nil)
 		require.NoError(t, err)
 	}
 
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
+
 	limit, offset := 2, 0
-	first, err := qr.Accounts(ctx, nil, &limit, &offset)
+	first, err := qr.Accounts(teamCtx, &team.ID, &limit, &offset)
 	require.NoError(t, err)
 	require.Len(t, first.Items, 2)
 	assert.Equal(t, 3, first.TotalCount)
@@ -216,7 +302,7 @@ func TestAccountResolver_Accounts_Pagination(t *testing.T) {
 	assert.Equal(t, []string{"three", "two"}, []string{first.Items[0].Username, first.Items[1].Username})
 
 	offset = 2
-	last, err := qr.Accounts(ctx, nil, &limit, &offset)
+	last, err := qr.Accounts(teamCtx, &team.ID, &limit, &offset)
 	require.NoError(t, err)
 	require.Len(t, last.Items, 1)
 	assert.False(t, last.HasNextPage)
@@ -230,12 +316,16 @@ func TestAccountResolver_Accounts_ClampsLimit(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	_, err := mr.CreateAccount(ctx, "only@example.com", "only", nil, nil)
+	team, err := mr.CreateTeam(ctx, "resolver-accounts-clamp-team")
 	require.NoError(t, err)
+	_, err = mr.CreateAccount(ctx, "only@example.com", "only", &team.ID, nil)
+	require.NoError(t, err)
+
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
 
 	// An oversized limit is clamped to MaxPageLimit rather than rejected.
 	huge := MaxPageLimit * 10
-	page, err := qr.Accounts(ctx, nil, &huge, nil)
+	page, err := qr.Accounts(teamCtx, &team.ID, &huge, nil)
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, 1, page.TotalCount)
@@ -450,7 +540,7 @@ func TestAccountResolver_DeleteAccount_DeniedForAdminOfAnotherTeam(t *testing.T)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 
-	still, err := (&queryResolver{r}).Account(ctx, target.ID)
+	still, err := (&queryResolver{r}).Account(asPrincipal(ctx, target.ID, model.RoleMember, teamB.ID), target.ID)
 	require.NoError(t, err)
 	assert.NotNil(t, still)
 }

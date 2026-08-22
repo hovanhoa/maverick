@@ -12,7 +12,7 @@ type ServiceOption func(s *Service)
 // use to determine if it should receive traffic or not.
 func WithHealthCheckFn(healthFn HealthFn) ServiceOption {
 	return func(s *Service) {
-		s.healthFn = healthFn
+		s.setHealthFn(healthFn)
 	}
 }
 
