@@ -56,31 +56,37 @@ func (r *Resolver) listTeams(ctx context.Context, limit *int, offset *int) (*mod
 }
 
 func (r *Resolver) getTeam(ctx context.Context, id string) (*model.Team, error) {
+	if err := requireTeamMember(ctx, id); err != nil {
+		return nil, err
+	}
 	return r.deps.Database.GetTeamByID(ctx, id)
 }
 
 func (r *Resolver) updateTeam(ctx context.Context, id string, name string) (*model.Team, error) {
-	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+	if err := requireTeamRole(ctx, id, model.RoleOwner, model.RoleAdmin); err != nil {
 		return nil, err
 	}
 	return r.deps.Database.UpdateTeam(ctx, id, name)
 }
 
 func (r *Resolver) deleteTeam(ctx context.Context, id string) (bool, error) {
-	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+	if err := requireTeamRole(ctx, id, model.RoleOwner, model.RoleAdmin); err != nil {
 		return false, err
 	}
 	return r.deps.Database.DeleteTeam(ctx, id)
 }
 
 func (r *Resolver) updateTeamModelAllowlist(ctx context.Context, teamID string, allowlist []string) (*model.Team, error) {
-	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+	if err := requireTeamRole(ctx, teamID, model.RoleOwner, model.RoleAdmin); err != nil {
 		return nil, err
 	}
 	return r.deps.Database.UpdateTeamModelAllowlist(ctx, teamID, allowlist)
 }
 
 func (r *Resolver) isModelAllowed(ctx context.Context, teamID string, provider string, modelName string) (bool, error) {
+	if err := requireTeamMember(ctx, teamID); err != nil {
+		return false, err
+	}
 	team, err := r.deps.Database.GetTeamByID(ctx, teamID)
 	if err != nil {
 		return false, err
@@ -89,4 +95,11 @@ func (r *Resolver) isModelAllowed(ctx context.Context, teamID string, provider s
 		return false, errors.New("team not found")
 	}
 	return team.IsModelAllowed(provider, modelName), nil
+}
+
+func (r *Resolver) updateTeamQuota(ctx context.Context, teamID string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Team, error) {
+	if err := requireTeamRole(ctx, teamID, model.RoleOwner, model.RoleAdmin); err != nil {
+		return nil, err
+	}
+	return r.deps.Database.UpdateTeamQuota(ctx, teamID, monthlyTokenBudget, clearMonthlyTokenBudget)
 }

@@ -16,6 +16,15 @@ export interface Team {
   createdAt: string;
   updatedAt: string;
   modelAllowlist: string[];
+  monthlyTokenBudget: number | null;
+}
+
+export interface UsageSummary {
+  requestCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
 }
 
 export interface ApiKey {

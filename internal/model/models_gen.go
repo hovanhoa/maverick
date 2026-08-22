@@ -76,6 +76,10 @@ type Team struct {
 	// entries (e.g. "anthropic:*", "openai:gpt-4o"). Empty means unrestricted -
 	// no allowlist has been configured yet.
 	ModelAllowlist []string `json:"modelAllowlist"`
+	// Maximum total tokens (prompt + completion) this team's keys may use per
+	// calendar month via the LLM proxy. Null means unlimited - no budget has
+	// been configured yet.
+	MonthlyTokenBudget *int `json:"monthlyTokenBudget,omitempty"`
 }
 
 // TeamConnection is a single page of teams
@@ -86,6 +90,21 @@ type TeamConnection struct {
 	TotalCount int `json:"totalCount"`
 	// Whether a further page follows this one
 	HasNextPage bool `json:"hasNextPage"`
+}
+
+// UsageSummary aggregates usage_event rows over a time window.
+type UsageSummary struct {
+	// Number of proxy calls counted in this summary
+	RequestCount int `json:"requestCount"`
+	// Total prompt (input) tokens across all counted calls
+	PromptTokens int `json:"promptTokens"`
+	// Total completion (output) tokens across all counted calls
+	CompletionTokens int `json:"completionTokens"`
+	// Total tokens (prompt + completion) across all counted calls
+	TotalTokens int `json:"totalTokens"`
+	// Estimated cost in USD across all counted calls. Pricing is illustrative/
+	// approximate, not a live-synced price list.
+	CostUsd float64 `json:"costUsd"`
 }
 
 // Role governs what an account is permitted to manage. It is global on the

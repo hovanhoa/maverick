@@ -28,6 +28,13 @@ type Team {
     no allowlist has been configured yet.
     """
     modelAllowlist: [String!]!
+
+    """
+    Maximum total tokens (prompt + completion) this team's keys may use per
+    calendar month via the LLM proxy. Null means unlimited - no budget has
+    been configured yet.
+    """
+    monthlyTokenBudget: Int
 }
 
 """
@@ -91,4 +98,11 @@ extend type Mutation {
     OWNER or ADMIN.
     """
     updateTeamModelAllowlist(teamId: ID!, allowlist: [String!]!): Team!
+
+    """
+    Set or clear a team's monthly token budget. Provide monthlyTokenBudget to
+    set it, or clearMonthlyTokenBudget to remove the limit. Requires the
+    caller to be an OWNER or ADMIN.
+    """
+    updateTeamQuota(teamId: ID!, monthlyTokenBudget: Int, clearMonthlyTokenBudget: Boolean): Team!
 }

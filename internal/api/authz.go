@@ -41,3 +41,44 @@ func requireSelfOrRole(ctx context.Context, accountID string, roles ...model.Rol
 	}
 	return requireRole(ctx, roles...)
 }
+
+// requireTeamMember returns an error unless the current principal belongs
+// to the given team. OWNER/ADMIN/MEMBER are all team-scoped roles: holding
+// one says nothing about which team you're allowed to see or manage, only
+// that you belong to it.
+func requireTeamMember(ctx context.Context, teamID string) error {
+	principal := currentPrincipal(ctx)
+	if principal == nil || !principal.BelongsToOrg(teamID) {
+		return errors.New("forbidden: not a member of this team")
+	}
+	return nil
+}
+
+// requireTeamRole returns an error unless the current principal belongs to
+// the given team AND holds at least one of the given roles. This is the
+// gate for team-scoped mutations (e.g. updateTeamQuota): an OWNER of one
+// team must not be able to manage a different team just by virtue of
+// holding that role somewhere.
+func requireTeamRole(ctx context.Context, teamID string, roles ...model.Role) error {
+	if err := requireTeamMember(ctx, teamID); err != nil {
+		return err
+	}
+	return requireRole(ctx, roles...)
+}
+
+// requireSelfOrTeamRole returns an error unless the current principal is
+// accountID itself, or - when targetTeamID identifies a team - belongs to
+// that team and holds one of the given roles. An unaffiliated target
+// account (targetTeamID == nil) has no team to scope by, so this falls
+// back to a plain role check, matching createTeam's bootstrap-time
+// behavior when there's no team yet to check membership against.
+func requireSelfOrTeamRole(ctx context.Context, accountID string, targetTeamID *string, roles ...model.Role) error {
+	principal := currentPrincipal(ctx)
+	if principal != nil && principal.ID == accountID {
+		return nil
+	}
+	if targetTeamID == nil {
+		return requireRole(ctx, roles...)
+	}
+	return requireTeamRole(ctx, *targetTeamID, roles...)
+}

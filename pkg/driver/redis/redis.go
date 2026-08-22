@@ -8,6 +8,7 @@ import (
 
 	"github.com/hovanhoa/llmgateway/pkg/core/env"
 	"github.com/hovanhoa/llmgateway/pkg/core/errors"
+	"github.com/hovanhoa/llmgateway/pkg/core/retries"
 	"github.com/hovanhoa/llmgateway/pkg/driver"
 
 	"github.com/go-redis/redis/v8"
@@ -109,40 +110,68 @@ func (db *Database) Keys(ctx context.Context, pattern string) ([]string, error) 
 	return allKeys, nil
 }
 
-func (db *Database) GetAndSet(ctx context.Context, fn driver.KVMapper, keys ...string) error {
-	err := db.client.Watch(ctx, func(t *redis.Tx) error {
-		kv := make(map[string]string)
+// getAndSetBackoff bounds how long and how many times GetAndSet retries
+// after losing the optimistic lock (another client modified one of the
+// watched keys between the read and the write). The interval is
+// deliberately short - this is an in-process retry loop around a
+// sub-millisecond round trip, not a network-call backoff - with jitter so
+// concurrent retriers don't collide in lockstep.
+var getAndSetBackoff = retries.NewBackoff().
+	WithMaxRetries(20).
+	WithInterval(time.Millisecond).
+	WithMinInterval(time.Millisecond).
+	WithMaxInterval(50 * time.Millisecond).
+	WithMaxJitter(2 * time.Millisecond)
 
-		for _, k := range keys {
-			v, redisErr := t.Get(ctx, k).Result()
-			if redisErr == redis.Nil {
+func (db *Database) GetAndSet(ctx context.Context, fn driver.KVMapper, keys ...string) error {
+	backoff := getAndSetBackoff
+	for attempt := 0; ; attempt++ {
+		err := db.client.Watch(ctx, func(t *redis.Tx) error {
+			kv := make(map[string]string)
+
+			for _, k := range keys {
+				v, redisErr := t.Get(ctx, k).Result()
+				if redisErr == redis.Nil {
+					continue
+				}
+				if redisErr != nil {
+					return errors.Wrap(redisErr, "t.Get(%q)", k)
+				}
+				kv[k] = v
+			}
+
+			newKV, err := fn(kv)
+			if err != nil {
+				return err
+			}
+
+			// Commands are only actually guarded by WATCH once they're
+			// queued via TxPipelined and sent as a single MULTI/EXEC -
+			// calling t.Set directly would execute immediately, outside
+			// any transaction, and never detect the conflict.
+			_, err = t.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+				for k, v := range newKV {
+					pipe.Set(ctx, k, v, 60*24*time.Hour)
+				}
+				return nil
+			})
+			return err
+		}, keys...)
+
+		if err == redis.TxFailedErr {
+			if attempt < backoff.MaxRetries {
+				if sleepErr := backoff.SleepFunc(backoff.SleepDuration(attempt)); sleepErr != nil {
+					return errors.Wrap(sleepErr, "client.GetAndSet(%v): backoff sleep", keys)
+				}
 				continue
 			}
-			if redisErr != nil {
-				return errors.Wrap(redisErr, "t.Get(%q)", k)
-			}
-			kv[k] = v
+			return errors.New("client.GetAndSet(%v): exceeded %d retries after repeated optimistic-lock conflicts", keys, backoff.MaxRetries)
 		}
-
-		newKV, err := fn(kv)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "client.GetAndSet(%v)", keys)
 		}
-
-		for k, v := range newKV {
-			_, err := t.Set(ctx, k, v, 60*24*time.Hour).Result()
-			if err != nil {
-				return errors.Wrap(err, "t.Set(%q, %q)", k, v)
-			}
-		}
-
 		return nil
-	}, keys...)
-
-	if err != nil {
-		return errors.Wrap(err, "client.GetAndSet(%v)", keys)
 	}
-	return nil
 }
 
 func (db *Database) Publish(ctx context.Context, channel string, message string) error {

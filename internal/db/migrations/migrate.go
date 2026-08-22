@@ -160,6 +160,11 @@ func GetMigrations() []MigrationEntry {
 			Name:      "Add api_key table",
 			Migration: NewSQLFileMigration("00001_api_key_table"),
 		},
+		{
+			Index:     2,
+			Name:      "Add usage_event table",
+			Migration: NewSQLFileMigration("00002_usage_event_table"),
+		},
 	}
 }
 

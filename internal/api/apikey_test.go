@@ -18,7 +18,7 @@ func TestAPIKeyResolver_CreateApiKey_Self_Allowed(t *testing.T) {
 	account, err := mr.CreateAccount(ctx, "self-key@example.com", "selfkey", nil, nil)
 	require.NoError(t, err)
 
-	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember)
+	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember, "")
 
 	secret, err := mr.CreateAPIKey(selfCtx, account.ID)
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestAPIKeyResolver_CreateApiKey_ForOther_DeniedForMember(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "other-key-caller@example.com", "otherkeycaller", nil, nil)
 	require.NoError(t, err)
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.CreateAPIKey(memberCtx, target.ID)
 	require.Error(t, err)
@@ -57,11 +57,37 @@ func TestAPIKeyResolver_CreateApiKey_ForOther_AllowedForAdmin(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "admin-key-caller@example.com", "adminkeycaller", nil, nil)
 	require.NoError(t, err)
-	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, "")
 
 	secret, err := mr.CreateAPIKey(adminCtx, target.ID)
 	require.NoError(t, err)
 	assert.Equal(t, target.ID, secret.APIKey.AccountID)
+}
+
+// TestAPIKeyResolver_CreateApiKey_ForOther_DeniedForAdminOfAnotherTeam
+// asserts the strict-per-team RBAC rule: an ADMIN of one team cannot issue
+// an API key for an account belonging to a different team.
+func TestAPIKeyResolver_CreateApiKey_ForOther_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "apikey-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "apikey-team-b")
+	require.NoError(t, err)
+
+	target, err := mr.CreateAccount(ctx, "target-key-in-b@example.com", "targetkeyinb", &teamB.ID, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "admin-of-a-for-key@example.com", "adminofaforkey", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	_, err = mr.CreateAPIKey(adminOfACtx, target.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
 }
 
 func TestAPIKeyResolver_ApiKeys_ListsMetadataOnly(t *testing.T) {
@@ -92,7 +118,7 @@ func TestAPIKeyResolver_RevokeApiKey_Self_Allowed(t *testing.T) {
 
 	account, err := mr.CreateAccount(ctx, "revoke-self@example.com", "revokeself", nil, nil)
 	require.NoError(t, err)
-	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember)
+	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember, "")
 
 	secret, err := mr.CreateAPIKey(selfCtx, account.ID)
 	require.NoError(t, err)
@@ -115,7 +141,7 @@ func TestAPIKeyResolver_RevokeApiKey_ForOther_DeniedForMember(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "revoke-caller@example.com", "revokecaller", nil, nil)
 	require.NoError(t, err)
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.RevokeAPIKey(memberCtx, secret.APIKey.ID)
 	require.Error(t, err)

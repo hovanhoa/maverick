@@ -504,6 +504,13 @@ type Team {
     no allowlist has been configured yet.
     """
     modelAllowlist: [String!]!
+
+    """
+    Maximum total tokens (prompt + completion) this team's keys may use per
+    calendar month via the LLM proxy. Null means unlimited - no budget has
+    been configured yet.
+    """
+    monthlyTokenBudget: Int
 }
 
 """
@@ -567,6 +574,52 @@ extend type Mutation {
     OWNER or ADMIN.
     """
     updateTeamModelAllowlist(teamId: ID!, allowlist: [String!]!): Team!
+
+    """
+    Set or clear a team's monthly token budget. Provide monthlyTokenBudget to
+    set it, or clearMonthlyTokenBudget to remove the limit. Requires the
+    caller to be an OWNER or ADMIN.
+    """
+    updateTeamQuota(teamId: ID!, monthlyTokenBudget: Int, clearMonthlyTokenBudget: Boolean): Team!
+}
+`, BuiltIn: false},
+	{Name: "../../schema/usage.graphqls", Input: `"""
+UsageSummary aggregates usage_event rows over a time window.
+"""
+type UsageSummary {
+    """
+    Number of proxy calls counted in this summary
+    """
+    requestCount: Int!
+
+    """
+    Total prompt (input) tokens across all counted calls
+    """
+    promptTokens: Int!
+
+    """
+    Total completion (output) tokens across all counted calls
+    """
+    completionTokens: Int!
+
+    """
+    Total tokens (prompt + completion) across all counted calls
+    """
+    totalTokens: Int!
+
+    """
+    Estimated cost in USD across all counted calls. Pricing is illustrative/
+    approximate, not a live-synced price list.
+    """
+    costUsd: Float!
+}
+
+extend type Query {
+    """
+    Aggregate LLM proxy usage for a team, optionally restricted to calls
+    since the given timestamp (default: start of the current calendar month).
+    """
+    teamUsage(teamId: ID!, since: Time): UsageSummary!
 }
 `, BuiltIn: false},
 }

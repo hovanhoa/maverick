@@ -204,3 +204,56 @@ func TestUpdateTeamModelAllowlist_NotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "team not found")
 }
+
+func TestUpdateTeamQuota(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Quota team"})
+	require.NoError(t, err)
+	assert.Nil(t, team.MonthlyTokenBudget, "new teams start unlimited")
+
+	budget := 1_000_000
+	updated, err := database.UpdateTeamQuota(ctx, team.ID, &budget, nil)
+	require.NoError(t, err)
+	require.NotNil(t, updated.MonthlyTokenBudget)
+	assert.Equal(t, budget, *updated.MonthlyTokenBudget)
+
+	fetched, err := database.GetTeamByID(ctx, team.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.MonthlyTokenBudget)
+	assert.Equal(t, budget, *fetched.MonthlyTokenBudget)
+
+	clear := true
+	cleared, err := database.UpdateTeamQuota(ctx, team.ID, nil, &clear)
+	require.NoError(t, err)
+	assert.Nil(t, cleared.MonthlyTokenBudget)
+}
+
+func TestUpdateTeamQuota_RequiresOneField(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Quota team 2"})
+	require.NoError(t, err)
+
+	_, err = database.UpdateTeamQuota(ctx, team.ID, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one of")
+}
+
+func TestUpdateTeamQuota_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	budget := 100
+	_, err := database.UpdateTeamQuota(ctx, "team_missing", &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "team not found")
+}

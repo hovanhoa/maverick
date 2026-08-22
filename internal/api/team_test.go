@@ -22,21 +22,26 @@ func TestTeamResolver_CRUD(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 	assert.Equal(t, "resolver-team", created.Name)
 
-	fetched, err := qr.Team(ctx, created.ID)
+	// createTeam doesn't update the RBAC-exempt test principal's OrgID (it
+	// only writes the DB row for real, account-backed callers), so scope a
+	// fresh context to the team just created for the rest of the lifecycle.
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, created.ID)
+
+	fetched, err := qr.Team(teamCtx, created.ID)
 	require.NoError(t, err)
 	require.NotNil(t, fetched)
 	assert.Equal(t, created.ID, fetched.ID)
 
-	updated, err := mr.UpdateTeam(ctx, created.ID, "resolver-team-renamed")
+	updated, err := mr.UpdateTeam(teamCtx, created.ID, "resolver-team-renamed")
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, "resolver-team-renamed", updated.Name)
 
-	deleted, err := mr.DeleteTeam(ctx, created.ID)
+	deleted, err := mr.DeleteTeam(teamCtx, created.ID)
 	require.NoError(t, err)
 	assert.True(t, deleted)
 
-	gone, err := qr.Team(ctx, created.ID)
+	gone, err := qr.Team(teamCtx, created.ID)
 	require.NoError(t, err)
 	assert.Nil(t, gone)
 }
@@ -52,7 +57,8 @@ func TestTeamResolver_CreateTeam_GeneratesID(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 	assert.True(t, strings.HasPrefix(created.ID, "team_"))
 
-	_, _ = mr.DeleteTeam(ctx, created.ID)
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, created.ID)
+	_, _ = mr.DeleteTeam(teamCtx, created.ID)
 }
 
 func TestAccountResolver_CreateWithTeam(t *testing.T) {
@@ -69,8 +75,9 @@ func TestAccountResolver_CreateWithTeam(t *testing.T) {
 	require.NotNil(t, acc.TeamID)
 	assert.Equal(t, team.ID, *acc.TeamID)
 
-	_, _ = mr.DeleteAccount(ctx, acc.ID)
-	_, _ = mr.DeleteTeam(ctx, team.ID)
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
+	_, _ = mr.DeleteAccount(teamCtx, acc.ID)
+	_, _ = mr.DeleteTeam(teamCtx, team.ID)
 }
 
 func TestTeamResolver_Teams(t *testing.T) {
@@ -166,7 +173,7 @@ func TestTeamResolver_CreateTeam_DeniedForMember(t *testing.T) {
 	caller, err := mr.CreateAccount(ctx, "member-team-creator@example.com", "memberteamcreator", nil, nil)
 	require.NoError(t, err)
 
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.CreateTeam(memberCtx, "should-not-exist")
 	require.Error(t, err)
@@ -184,7 +191,7 @@ func TestTeamResolver_CreateTeam_AutoAssignsOwner(t *testing.T) {
 	caller, err := mr.CreateAccount(ctx, "admin-team-creator@example.com", "adminteamcreator", nil, nil)
 	require.NoError(t, err)
 
-	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, "")
 
 	team, err := mr.CreateTeam(adminCtx, "auto-owner-team")
 	require.NoError(t, err)
@@ -210,7 +217,7 @@ func TestTeamResolver_UpdateTeam_DeniedForMember(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "member-team-updater@example.com", "memberteamupdater", nil, nil)
 	require.NoError(t, err)
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.UpdateTeam(memberCtx, team.ID, "renamed")
 	require.Error(t, err)
@@ -228,7 +235,7 @@ func TestTeamResolver_DeleteTeam_DeniedForMember(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "member-team-deleter@example.com", "memberteamdeleter", nil, nil)
 	require.NoError(t, err)
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.DeleteTeam(memberCtx, team.ID)
 	require.Error(t, err)
@@ -246,7 +253,7 @@ func TestTeamResolver_UpdateTeamModelAllowlist_DeniedForMember(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "member-allowlist@example.com", "memberallowlist", nil, nil)
 	require.NoError(t, err)
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.UpdateTeamModelAllowlist(memberCtx, team.ID, []string{"anthropic:*"})
 	require.Error(t, err)
@@ -264,7 +271,7 @@ func TestTeamResolver_UpdateTeamModelAllowlist_AllowedForAdmin(t *testing.T) {
 
 	caller, err := mr.CreateAccount(ctx, "admin-allowlist@example.com", "adminallowlist", nil, nil)
 	require.NoError(t, err)
-	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, team.ID)
 
 	updated, err := mr.UpdateTeamModelAllowlist(adminCtx, team.ID, []string{"anthropic:*", "openai:gpt-4o"})
 	require.NoError(t, err)
@@ -280,20 +287,21 @@ func TestQueryResolver_IsModelAllowed(t *testing.T) {
 
 	team, err := mr.CreateTeam(ctx, "is-model-allowed-team")
 	require.NoError(t, err)
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
 
 	// No allowlist configured yet: everything is allowed.
-	allowed, err := qr.IsModelAllowed(ctx, team.ID, "anthropic", "claude-opus")
+	allowed, err := qr.IsModelAllowed(teamCtx, team.ID, "anthropic", "claude-opus")
 	require.NoError(t, err)
 	assert.True(t, allowed)
 
-	_, err = mr.UpdateTeamModelAllowlist(ctx, team.ID, []string{"anthropic:*"})
+	_, err = mr.UpdateTeamModelAllowlist(teamCtx, team.ID, []string{"anthropic:*"})
 	require.NoError(t, err)
 
-	allowed, err = qr.IsModelAllowed(ctx, team.ID, "anthropic", "claude-opus")
+	allowed, err = qr.IsModelAllowed(teamCtx, team.ID, "anthropic", "claude-opus")
 	require.NoError(t, err)
 	assert.True(t, allowed)
 
-	denied, err := qr.IsModelAllowed(ctx, team.ID, "openai", "gpt-4o")
+	denied, err := qr.IsModelAllowed(teamCtx, team.ID, "openai", "gpt-4o")
 	require.NoError(t, err)
 	assert.False(t, denied)
 }
@@ -304,7 +312,135 @@ func TestQueryResolver_IsModelAllowed_TeamNotFound(t *testing.T) {
 	r, ctx := testResolver(t)
 	qr := &queryResolver{r}
 
-	_, err := qr.IsModelAllowed(ctx, "team_missing", "anthropic", "claude-opus")
+	// Scoped to "team_missing" itself so the membership check passes and
+	// the underlying "team not found" lookup is what's actually exercised.
+	missingTeamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, "team_missing")
+
+	_, err := qr.IsModelAllowed(missingTeamCtx, "team_missing", "anthropic", "claude-opus")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "team not found")
+}
+
+// TestQueryResolver_IsModelAllowed_DeniedForNonMember asserts the RBAC rule
+// this phase adds: a principal who doesn't belong to the team can't even
+// read its allowlist status, regardless of role.
+func TestQueryResolver_IsModelAllowed_DeniedForNonMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "is-model-allowed-outsider-team")
+	require.NoError(t, err)
+
+	outsider, err := mr.CreateAccount(ctx, "outsider-model-check@example.com", "outsidermodelcheck", nil, nil)
+	require.NoError(t, err)
+	outsiderCtx := asPrincipal(ctx, outsider.ID, model.RoleOwner, "team_someone_elses")
+
+	_, err = qr.IsModelAllowed(outsiderCtx, team.ID, "anthropic", "claude-opus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestTeamResolver_UpdateTeamQuota_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "quota-rbac-team")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "member-quota@example.com", "memberquota", nil, nil)
+	require.NoError(t, err)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
+
+	budget := 1000
+	_, err = mr.UpdateTeamQuota(memberCtx, team.ID, &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestTeamResolver_UpdateTeamQuota_AllowedForAdmin(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "quota-admin-team")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "admin-quota@example.com", "adminquota", nil, nil)
+	require.NoError(t, err)
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, team.ID)
+
+	budget := 5000
+	updated, err := mr.UpdateTeamQuota(adminCtx, team.ID, &budget, nil)
+	require.NoError(t, err)
+	require.NotNil(t, updated.MonthlyTokenBudget)
+	assert.Equal(t, budget, *updated.MonthlyTokenBudget)
+}
+
+// TestTeamResolver_UpdateTeamQuota_DeniedForAdminOfAnotherTeam is the core
+// assertion of the strict-per-team RBAC redesign: holding OWNER/ADMIN
+// somewhere is not enough - the caller must belong to *this* team.
+func TestTeamResolver_UpdateTeamQuota_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "quota-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "quota-team-b")
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "admin-of-a@example.com", "adminofa", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	budget := 5000
+	_, err = mr.UpdateTeamQuota(adminOfACtx, teamB.ID, &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestQueryResolver_TeamUsage_EmptyByDefault(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "usage-query-team")
+	require.NoError(t, err)
+	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
+
+	summary, err := qr.TeamUsage(teamCtx, team.ID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, summary.RequestCount)
+	assert.Zero(t, summary.CostUsd)
+}
+
+// TestQueryResolver_TeamUsage_DeniedForNonMember asserts that usage/cost
+// data - more sensitive than a team's name or allowlist - is only visible
+// to that team's own members.
+func TestQueryResolver_TeamUsage_DeniedForNonMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+	qr := &queryResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "usage-query-outsider-team")
+	require.NoError(t, err)
+
+	outsider, err := mr.CreateAccount(ctx, "outsider-usage@example.com", "outsiderusage", nil, nil)
+	require.NoError(t, err)
+	outsiderCtx := asPrincipal(ctx, outsider.ID, model.RoleOwner, "team_someone_elses")
+
+	_, err = qr.TeamUsage(outsiderCtx, team.ID, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
 }

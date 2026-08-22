@@ -5,8 +5,10 @@ import (
 	"github.com/hovanhoa/llmgateway/internal/authz"
 	"github.com/hovanhoa/llmgateway/internal/db"
 	"github.com/hovanhoa/llmgateway/internal/model"
+	"github.com/hovanhoa/llmgateway/internal/policy"
 	"github.com/hovanhoa/llmgateway/internal/provider"
 	"github.com/hovanhoa/llmgateway/internal/proxy"
+	"github.com/hovanhoa/llmgateway/internal/quota"
 	"github.com/hovanhoa/llmgateway/pkg/core/http"
 
 	"github.com/benbjohnson/clock"
@@ -20,6 +22,14 @@ type Dependencies struct {
 	// Providers with no credentials configured are simply absent from the
 	// registry (see cmd/api/main.go) rather than present-but-erroring.
 	Providers provider.Registry
+
+	// Quota enforces the Phase 4 per-team monthly token budget. Nil
+	// disables quota enforcement entirely.
+	Quota *quota.Checker
+
+	// Policy is the content policy chain run on every proxy request before
+	// it reaches a provider. Nil skips policy checks entirely.
+	Policy *policy.Chain
 
 	Clock clock.Clock
 }
@@ -55,6 +65,8 @@ func NewService(deps Dependencies) *Service {
 		proxyHandler: proxy.NewHandler(proxy.Dependencies{
 			Database:  deps.DB,
 			Providers: deps.Providers,
+			Quota:     deps.Quota,
+			Policy:    deps.Policy,
 		}),
 	}
 
@@ -96,11 +108,14 @@ func (s *Service) getGraphQLRouter(authorizer *authz.Authorizer) http.IRouterGro
 
 // getChatRouter sets up the OpenAI-compatible LLM proxy route, gated by the
 // same API-key auth as the management API (Phase 2: "reuses the api_key
-// mechanism from 1c, scoped to the actual LLM proxy path").
+// mechanism from 1c, scoped to the actual LLM proxy path"). Middleware
+// order follows the Phase 3/4 plan: auth -> request id -> (quota/policy
+// run inside the handler, via internal/proxy) -> handler.
 func (s *Service) getChatRouter(authorizer *authz.Authorizer) http.IRouterGroup {
 	chatRouter := s.Service.Router().Group("/v1")
 	chatRouter.Use(http.AuthMiddleware[model.Identity, model.Role](authorizer))
 	chatRouter.Use(http.RequireAuth[model.Identity, model.Role]())
+	chatRouter.Use(requestIDMiddleware)
 	return chatRouter
 }
 

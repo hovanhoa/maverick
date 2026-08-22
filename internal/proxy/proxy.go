@@ -1,8 +1,9 @@
 // Package proxy implements the business logic behind the gateway's
 // OpenAI-compatible LLM proxy endpoint: request validation, provider
 // routing (by a "provider/model" prefix on the request's model field),
-// the Phase 2 per-team model allowlist check, and dispatch to the
-// resolved provider.Provider, with a retry wrapper on non-streaming calls.
+// the Phase 2 per-team model allowlist, Phase 4's per-team quota and
+// policy checks, and dispatch to the resolved provider.Provider, with a
+// retry wrapper on non-streaming calls and usage metering on completion.
 //
 // This package is deliberately independent of the HTTP framework -
 // internal/http wires it into an actual route.
@@ -15,8 +16,12 @@ import (
 
 	"github.com/hovanhoa/llmgateway/internal/db"
 	"github.com/hovanhoa/llmgateway/internal/model"
+	"github.com/hovanhoa/llmgateway/internal/policy"
 	"github.com/hovanhoa/llmgateway/internal/provider"
+	"github.com/hovanhoa/llmgateway/internal/quota"
+	"github.com/hovanhoa/llmgateway/internal/usage"
 	"github.com/hovanhoa/llmgateway/pkg/core/auth"
+	"github.com/hovanhoa/llmgateway/pkg/core/log"
 	"github.com/hovanhoa/llmgateway/pkg/openai"
 )
 
@@ -24,10 +29,14 @@ import (
 // when the upstream provider returns a transient error.
 const maxRetries = 2
 
-// Dependencies of the Handler.
+// Dependencies of the Handler. Quota and Policy are optional: a nil Quota
+// disables quota enforcement entirely (equivalent to every team being
+// unlimited), and a nil Policy skips content policy checks.
 type Dependencies struct {
 	Database  *db.Database
 	Providers provider.Registry
+	Quota     *quota.Checker
+	Policy    *policy.Chain
 }
 
 // Handler implements the proxy's request handling, independent of any HTTP
@@ -63,74 +72,184 @@ func (h *Handler) resolve(modelField string) (provider.Provider, string, string,
 	return p, providerName, modelName, nil
 }
 
-// checkAllowlist enforces the Phase 2 per-team model allowlist. An account
-// with no team is unrestricted, matching the Phase 2 decision that the
-// allowlist is a team-level control.
-func (h *Handler) checkAllowlist(ctx context.Context, principal *Principal, providerName, modelName string) error {
-	if principal.OrgID == "" {
-		return nil
-	}
-
-	team, err := h.deps.Database.GetTeamByID(ctx, principal.OrgID)
-	if err != nil {
-		return err
-	}
-	if team == nil {
-		return nil
-	}
-
-	if !team.IsModelAllowed(providerName, modelName) {
-		return provider.NewError(providerName, provider.ErrorKindPolicy,
-			fmt.Sprintf("model %q is not on this team's allowlist", providerName+"/"+modelName), nil)
-	}
-
-	return nil
+// preparedCall is everything prepare resolved about a request, threaded
+// through to the caller so it can dispatch, meter, and reconcile quota
+// without re-deriving any of it.
+type preparedCall struct {
+	provider     provider.Provider
+	providerName string
+	modelName    string
+	upstream     *openai.ChatCompletionRequest
+	team         *model.Team // nil when the caller's account has no team
+	estimate     int
+	quotaWindow  string // the window Reserve made its reservation against; passed back to Reconcile unchanged
 }
 
-// prepare validates the request, resolves its provider/model, and checks
-// the caller's team allowlist. It returns the provider to call and a copy
-// of the request with Model rewritten to the bare upstream model name
-// (the "provider/" prefix is a gateway routing concern, not something any
-// adapter should ever see).
-func (h *Handler) prepare(ctx context.Context, principal *Principal, req *openai.ChatCompletionRequest) (provider.Provider, *openai.ChatCompletionRequest, error) {
+// prepare validates the request, resolves its provider/model, checks the
+// caller's team allowlist and quota, and runs the policy chain - in that
+// order, cheapest checks first, so an expensive provider call is the last
+// thing that can happen. It returns everything ChatCompletion/
+// StreamChatCompletion need to dispatch and later reconcile quota/usage.
+func (h *Handler) prepare(ctx context.Context, requestID string, principal *Principal, req *openai.ChatCompletionRequest) (*preparedCall, error) {
 	if err := req.Validate(); err != nil {
-		return nil, nil, provider.NewError("", provider.ErrorKindInvalidRequest, err.Error(), nil)
+		return nil, provider.NewError("", provider.ErrorKindInvalidRequest, err.Error(), nil)
 	}
 
 	p, providerName, modelName, err := h.resolve(req.Model)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	if err := h.checkAllowlist(ctx, principal, providerName, modelName); err != nil {
-		return nil, nil, err
+	var team *model.Team
+	if principal.OrgID != "" {
+		team, err = h.deps.Database.GetTeamByID(ctx, principal.OrgID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if team != nil && !team.IsModelAllowed(providerName, modelName) {
+		return nil, provider.NewError(providerName, provider.ErrorKindPolicy,
+			fmt.Sprintf("model %q is not on this team's allowlist", providerName+"/"+modelName), nil)
 	}
 
 	upstream := *req
 	upstream.Model = modelName
-	return p, &upstream, nil
+
+	estimate := quota.EstimateTokens(&upstream)
+	var quotaWindow string
+	if h.deps.Quota != nil && team != nil {
+		var err error
+		quotaWindow, err = h.deps.Quota.Reserve(ctx, team.ID, team.MonthlyTokenBudget, estimate)
+		if err != nil {
+			if err == quota.ErrExceeded {
+				return nil, provider.NewError(providerName, provider.ErrorKindQuota,
+					"team monthly token budget exceeded", nil)
+			}
+			return nil, err
+		}
+	}
+
+	if h.deps.Policy != nil {
+		redacted, decision := h.deps.Policy.Evaluate(&upstream)
+		h.logPolicyDecision(ctx, requestID, decision)
+		if decision.Action == policy.ActionDeny {
+			h.releaseQuota(ctx, team, quotaWindow, estimate)
+			return nil, provider.NewError(providerName, provider.ErrorKindPolicy, decision.Message, nil)
+		}
+		upstream = *redacted
+	}
+
+	return &preparedCall{
+		provider:     p,
+		providerName: providerName,
+		modelName:    modelName,
+		upstream:     &upstream,
+		team:         team,
+		estimate:     estimate,
+		quotaWindow:  quotaWindow,
+	}, nil
+}
+
+func (h *Handler) logPolicyDecision(ctx context.Context, requestID string, decision policy.Decision) {
+	if decision.Action == policy.ActionAllow {
+		return
+	}
+	// Only the reason code is logged, never raw request content.
+	log.FromContext(ctx).Info("policy decision",
+		log.String("request_id", requestID),
+		log.String("action", string(decision.Action)),
+		log.String("reason_code", decision.ReasonCode),
+	)
+}
+
+// releaseQuota undoes a reservation for a call that never reached (or
+// never completed at) the provider.
+func (h *Handler) releaseQuota(ctx context.Context, team *model.Team, window string, estimate int) {
+	if h.deps.Quota == nil || team == nil {
+		return
+	}
+	_ = h.deps.Quota.Reconcile(ctx, window, team.MonthlyTokenBudget, estimate, 0)
+}
+
+// recordUsage reconciles the quota reservation to actual usage and persists
+// a durable usage_event row.
+func (h *Handler) recordUsage(ctx context.Context, requestID string, principal *Principal, call *preparedCall, resp *openai.ChatCompletionResponse) {
+	if h.deps.Quota != nil && call.team != nil {
+		_ = h.deps.Quota.Reconcile(ctx, call.quotaWindow, call.team.MonthlyTokenBudget, call.estimate, resp.Usage.TotalTokens)
+	}
+
+	var teamID *string
+	if call.team != nil {
+		teamID = &call.team.ID
+	}
+
+	event := &model.UsageEvent{
+		RequestID:        requestID,
+		AccountID:        principal.ID,
+		TeamID:           teamID,
+		Provider:         call.providerName,
+		Model:            call.modelName,
+		PromptTokens:     resp.Usage.PromptTokens,
+		CompletionTokens: resp.Usage.CompletionTokens,
+		TotalTokens:      resp.Usage.TotalTokens,
+		CostUSD:          usage.CalculateCost(call.providerName, call.modelName, resp.Usage.PromptTokens, resp.Usage.CompletionTokens),
+	}
+	if err := h.deps.Database.RecordUsageEvent(ctx, event); err != nil {
+		log.FromContext(ctx).Error("failed to record usage event", log.Error(err), log.String("request_id", requestID))
+	}
 }
 
 // ChatCompletion handles a single non-streaming chat completion call.
-func (h *Handler) ChatCompletion(ctx context.Context, principal *Principal, req *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
-	p, upstream, err := h.prepare(ctx, principal, req)
+func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principal *Principal, req *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
+	call, err := h.prepare(ctx, requestID, principal, req)
 	if err != nil {
 		return nil, err
 	}
 
-	return provider.WithRetry(ctx, maxRetries, func() (*openai.ChatCompletionResponse, error) {
-		return p.ChatCompletion(ctx, upstream)
+	resp, err := provider.WithRetry(ctx, maxRetries, func() (*openai.ChatCompletionResponse, error) {
+		return call.provider.ChatCompletion(ctx, call.upstream)
 	})
+	if err != nil {
+		h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
+		return nil, err
+	}
+
+	h.recordUsage(ctx, requestID, principal, call, resp)
+	return resp, nil
 }
 
 // StreamChatCompletion handles a streaming chat completion call. Streaming
 // calls are not retried - a client already receiving chunks can't safely
 // have the request silently restarted underneath it.
-func (h *Handler) StreamChatCompletion(ctx context.Context, principal *Principal, req *openai.ChatCompletionRequest) (<-chan provider.StreamEvent, error) {
-	p, upstream, err := h.prepare(ctx, principal, req)
+//
+// Known limitation: none of the three live adapters reliably surface a
+// final token-usage figure over the stream, so a successful stream simply
+// keeps its upfront estimate reserved (no usage_event is recorded for
+// streaming calls yet) rather than reconciling to a real number. A failed
+// stream still fully releases its reservation.
+func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, principal *Principal, req *openai.ChatCompletionRequest) (<-chan provider.StreamEvent, error) {
+	call, err := h.prepare(ctx, requestID, principal, req)
 	if err != nil {
 		return nil, err
 	}
 
-	return p.StreamChatCompletion(ctx, upstream)
+	upstream, err := call.provider.StreamChatCompletion(ctx, call.upstream)
+	if err != nil {
+		h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
+		return nil, err
+	}
+
+	events := make(chan provider.StreamEvent)
+	go func() {
+		defer close(events)
+		for ev := range upstream {
+			if ev.Err != nil {
+				h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
+			}
+			events <- ev
+		}
+	}()
+
+	return events, nil
 }

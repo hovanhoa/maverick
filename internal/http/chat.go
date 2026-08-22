@@ -27,12 +27,14 @@ func (s *Service) chatCompletions(c *corehttp.Context) {
 		return
 	}
 
+	requestID := requestIDFromContext(c.Request.Context())
+
 	if req.Stream {
-		s.streamChatCompletions(c, principal, &req)
+		s.streamChatCompletions(c, requestID, principal, &req)
 		return
 	}
 
-	resp, err := s.proxyHandler.ChatCompletion(c.Request.Context(), principal, &req)
+	resp, err := s.proxyHandler.ChatCompletion(c.Request.Context(), requestID, principal, &req)
 	if err != nil {
 		status, body := proxy.ErrorResponseFor(err)
 		c.JSON(status, body)
@@ -42,8 +44,8 @@ func (s *Service) chatCompletions(c *corehttp.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (s *Service) streamChatCompletions(c *corehttp.Context, principal *auth.Principal[model.Identity, model.Role], req *openai.ChatCompletionRequest) {
-	events, err := s.proxyHandler.StreamChatCompletion(c.Request.Context(), principal, req)
+func (s *Service) streamChatCompletions(c *corehttp.Context, requestID string, principal *auth.Principal[model.Identity, model.Role], req *openai.ChatCompletionRequest) {
+	events, err := s.proxyHandler.StreamChatCompletion(c.Request.Context(), requestID, principal, req)
 	if err != nil {
 		status, body := proxy.ErrorResponseFor(err)
 		c.JSON(status, body)

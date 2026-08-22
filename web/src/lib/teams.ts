@@ -1,6 +1,6 @@
-import { gql, type Team } from './api';
+import { gql, type Team, type UsageSummary } from './api';
 
-const TEAM_FIELDS = `id name createdAt updatedAt modelAllowlist`;
+const TEAM_FIELDS = `id name createdAt updatedAt modelAllowlist monthlyTokenBudget`;
 
 export async function listTeams(): Promise<Team[]> {
   const data = await gql<{ teams: { items: Team[] } }>(`query { teams(limit: 100) { items { ${TEAM_FIELDS} } } }`);
@@ -42,4 +42,23 @@ export async function isModelAllowed(teamId: string, provider: string, model: st
     { teamId, provider, model }
   );
   return data.isModelAllowed;
+}
+
+/** Sets the team's monthly token budget, or clears it (unlimited) when budget is null. */
+export async function updateTeamQuota(teamId: string, budget: number | null): Promise<Team> {
+  const data = await gql<{ updateTeamQuota: Team }>(
+    `mutation($teamId: ID!, $budget: Int, $clear: Boolean) {
+      updateTeamQuota(teamId: $teamId, monthlyTokenBudget: $budget, clearMonthlyTokenBudget: $clear) { ${TEAM_FIELDS} }
+    }`,
+    { teamId, budget, clear: budget === null }
+  );
+  return data.updateTeamQuota;
+}
+
+export async function getTeamUsage(teamId: string): Promise<UsageSummary> {
+  const data = await gql<{ teamUsage: UsageSummary }>(
+    `query($teamId: ID!) { teamUsage(teamId: $teamId) { requestCount promptTokens completionTokens totalTokens costUsd } }`,
+    { teamId }
+  );
+  return data.teamUsage;
 }

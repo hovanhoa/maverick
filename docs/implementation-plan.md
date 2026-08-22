@@ -33,7 +33,7 @@ Phase 2 onward, to the LLM proxy itself).
 2. `createAccount(..., role: Role)` (default `MEMBER`); `updateAccount(..., role: Role)` — see [internal/api/account.go](../internal/api/account.go), [internal/db/account.go](../internal/db/account.go).
 3. Business rule enforced in the resolver layer (`requireRole` in [internal/api/authz.go](../internal/api/authz.go)): only `OWNER`/`ADMIN` can change another account's role, create an account with an elevated role, or delete accounts.
 4. Team creator is auto-assigned `OWNER` for that team (`createTeam` in [internal/api/team.go](../internal/api/team.go)).
-5. Decision: role is **global on Account**, not per-team — matches the current 1-account-to-0-or-1-team model. Revisit if accounts ever need to belong to multiple teams.
+5. **Revised during the Phase 4 correctness pass** (see "RBAC: strict per-team scoping" under Phase 4) — the original decision here was "role is global on Account, not per-team," meaning any `OWNER`/`ADMIN` could manage *any* team or account, not just their own. That turned out to be a real authorization gap, not an intentional simplification, and was tightened to scope `OWNER`/`ADMIN` to the team they belong to. `Role` is still a single field on `Account` (unchanged), but holding it is no longer sufficient on its own for team/account-scoped operations - see the Phase 4 section for the full rationale and what's still intentionally unscoped.
 
 ### 1c) API key issuance — Done
 1. New table `api_key(id, account_id, key_hash, prefix, created_at, revoked_at)` — stores a SHA-256 hash, never the plaintext secret (see [migrations](../internal/db/migrations/00001_api_key_table.up.sql)).
@@ -95,29 +95,45 @@ and [internal/provider/vertexai](../internal/provider/vertexai/adapter.go).
 3. Phase 2's model allowlist is enforced here: if the caller's account has a team, `team.IsModelAllowed(provider, model)` gates the call (a `policy`-kind error, mapped to 403) before any upstream request is made. No team means unrestricted, per the Phase 2 decision.
 4. Streaming response flow via real SSE: chunks are forwarded as `data: {...}\n\n`, terminated with `data: [DONE]\n\n`, flushed per chunk.
 5. Consistent error envelope: `proxy.ErrorResponseFor` maps `provider.ErrorKind` to both an HTTP status and an OpenAI-compatible `ErrorResponse` body.
-6. Deferred to Phase 4 (doesn't exist yet, so not part of this phase's middleware chain): request-id propagation, rate/quota prechecks, and content policy hooks.
+6. Request-id propagation, quota prechecks, and content policy hooks landed in Phase 4 below.
 7. Provider registry is built once in [cmd/api/providers.go](../cmd/api/providers.go) from optional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY` env vars - a provider is simply absent (not present-but-erroring) when unconfigured.
 8. Tests: full HTTP-level integration tests (auth required, non-streaming success with provider-prefix stripping, invalid model format, team-allowlist blocking, and real SSE streaming through the router) using a stub `Provider` - no live provider calls.
 
-## Phase 4: Governance, Limits, and Metering — Planned
+## Phase 4: Governance, Limits, and Metering — Done
 
 ### `internal/quota`
-1. Quota dimensions (team/account/key/model/time window).
-2. Pre-call quota checks with reservation semantics; post-call reconciliation.
-3. Redis for fast counters, PostgreSQL for durable records.
-4. Admin APIs for quota policy updates.
+1. Scoped to exactly one quota dimension - **per-team, calendar-month token budget** - rather than the full team/account/key/model/window matrix the plan sketched. This composes with the Phase 2 per-team model allowlist and the `Team.MonthlyTokenBudget *int` field mirrors that phase's `nil = unlimited` convention. Other dimensions can reuse the same `windowKey`-per-counter pattern later if needed.
+2. Pre-call reservation via `Checker.Reserve` (atomic `KVStore.GetAndSet` against a Redis counter keyed `quota:<teamID>:<yyyy-mm>`); post-call `Checker.Reconcile` adjusts the reservation to actual usage (delta-based, floored at 0) once the provider responds, or fully releases it (`actual=0`) on any failure/deny before dispatch. `Reconcile` takes the same `budget` and the exact `window` string `Reserve` returned, so it's a no-op for unlimited teams (mirroring `Reserve`) and always adjusts the calendar-month counter the reservation actually landed in, even if the call straddles a month boundary.
+3. Pre-call token estimate (`quota.EstimateTokens`, in [internal/quota/estimate.go](../internal/quota/estimate.go)): prompt chars/4 heuristic + `max_tokens` or a 1000-token default - deliberately rough, corrected by `Reconcile` once real usage is known.
+4. `updateTeamQuota(teamId, monthlyTokenBudget, clearMonthlyTokenBudget)` GraphQL mutation (owner/admin only, same `requireRole` pattern as the model allowlist mutations) is the admin API for quota policy updates; no separate REST endpoint.
+5. Known limitation, documented in code: streaming calls only reserve-and-release-on-error - none of the three live provider adapters reliably surface a final usage figure over SSE, so a successful stream keeps its upfront estimate reserved rather than reconciling to a real number.
+6. `pkg/driver/redis`'s `GetAndSet` (part of the pre-existing driver interface, but with no real caller before this phase) had a latent bug: its `WATCH` never actually guarded anything, because the write ran via `t.Set` directly instead of through `t.TxPipelined` - so two concurrent callers could both read the same stale counter value and both be admitted, silently defeating the reservation. Fixed to send the write through `TxPipelined` (so `WATCH`+`EXEC` actually detects the conflict) with a short jittered-backoff retry loop on `redis.TxFailedErr`. Verified with a throwaway 100-goroutine concurrent-increment script against the real dev Redis: before the fix this was capable of losing updates; after, updates are never lost (a handful of callers can still get a hard error under extreme same-key contention, which is the correct trade-off for optimistic locking, not a correctness bug).
 
 ### `internal/usage`
-1. Metering event schema: request id, principal, model, token counts, unit cost.
-2. Provider-specific token/cost extraction and normalization.
-3. Immutable usage events; aggregation queries by team/account/model/provider.
-4. Basic usage reporting endpoints.
+1. `usage_event` table (migration `00002_usage_event_table`): request id, account id (nullable), team id (nullable), provider, model, prompt/completion/total tokens, cost, timestamp - append-only, durable record of every completed non-streaming call. Both FKs are `ON DELETE SET NULL`, not `CASCADE` or left as the default `NO ACTION`: usage_event is a billing/audit trail, so deleting an account or team should orphan its past usage rows (keeping the historical record) rather than erasing that history or blocking the delete outright with a raw FK-violation error.
+2. `internal/usage/pricing.go` provides `CalculateCost(provider, model, promptTokens, completionTokens)` against a small hardcoded per-model $/1M-token table (Anthropic/OpenAI/Gemini's current flagship + mini/haiku models); unknown provider/model pairs cost $0 rather than erroring - illustrative/approximate pricing, not billing-grade.
+3. `teamUsage(teamId, since)` GraphQL query returns a `UsageSummary` (request count, prompt/completion/total tokens, cost) aggregated via `SumTeamUsage`'s `COALESCE(SUM(...), 0)` query; defaults to the current calendar month when `since` is omitted.
+4. Metering never blocks or fails the user-facing response: `RecordUsageEvent` errors are logged and swallowed in `proxy.recordUsage`, consistent with `usage.CalculateCost`'s $0 fallback philosophy.
 
 ### `internal/policy`
-1. Pre-request/pre-log/pre-response policy hooks.
-2. Baseline policies: blocked content patterns, sensitive data detection, prompt size/format guardrails.
-3. Configurable actions: allow, redact, deny — enforced before provider invocation.
-4. Policy decision logging with reason codes (no raw sensitive content).
+1. `policy.Chain` runs an ordered list of `Rule`s before every provider call; the first `Deny` short-circuits (releasing any quota reservation already made), `Redact` decisions accumulate against a working copy of the request, and rules never mutate the caller's original request in place.
+2. Baseline rules ([internal/policy/rules.go](../internal/policy/rules.go)): `MaxPromptLength` (deny over a char budget), `BlockedPatterns` (case-insensitive substring deny), `SensitiveDataRedaction` (regex-based redaction of gateway/OpenAI-shaped API keys and card-like numbers to `[REDACTED]`) - intentionally simple pattern/length checks illustrating the hook structure, not a production moderation system.
+3. `policy.DefaultChain(...)` (wired in [cmd/api/main.go](../cmd/api/main.go)) composes `MaxPromptLength` + `BlockedPatterns` + `SensitiveDataRedaction` in that order.
+4. Every non-Allow decision is logged with only `request_id`, `action`, and `reason_code` (via `proxy.logPolicyDecision`) - raw request content is never logged, per the plan's requirement.
+
+### Wiring (`internal/proxy`, `internal/http`)
+1. Request order inside `proxy.Handler.prepare`: validate → resolve provider/model → team allowlist → quota reserve → policy evaluate → dispatch (cheapest checks first, so a policy or quota rejection never reaches a provider).
+2. `internal/http/request_id.go` adds a request-id middleware ahead of the chat route (`X-Request-Id` echoed if the client sent one, otherwise generated); the id flows through to policy-decision logging and the persisted `usage_event` row.
+3. Tests: `internal/quota`, `internal/usage`, `internal/policy` each have full unit coverage in isolation (memkv-backed for quota); `internal/proxy` adds integration-level tests exercising quota-exceeded blocking, quota reconciliation to actual usage, policy-deny blocking + quota release, policy redaction reaching the provider, and usage-event persistence, on top of the existing Phase 3 routing/allowlist/retry tests.
+
+### RBAC: strict per-team scoping — Done
+A correctness pass on Phase 4 (adding `teamUsage`, which exposes cost/spend data) surfaced that the *existing* Phase 1-3 authorization design let this go further than intended: `requireRole(ctx, OWNER, ADMIN)` alone was used to gate every team- and account-scoped mutation (`updateTeam`, `deleteTeam`, `updateTeamModelAllowlist`, `updateAccount`'s role change, `deleteAccount`, API key issuance/revocation for another account), and it only checks *that the caller holds the role somewhere*, never *for which team*. An `OWNER` of Team A could rename, delete, or reconfigure Team B, or manage Team B's accounts and API keys, purely by holding the role - and the newly-added `teamUsage`/`getTeam`/`isModelAllowed` reads had no check at all.
+
+1. Fixed by adding `requireTeamMember`/`requireTeamRole`/`requireSelfOrTeamRole` in [internal/api/authz.go](../internal/api/authz.go), built on `Principal.BelongsToOrg` (already present in `pkg/core/auth`, just never wired up by any resolver). `requireTeamMember` checks `principal.OrgID == teamID`; `requireTeamRole` additionally requires an `OWNER`/`ADMIN` role.
+2. Applied to: `getTeam`/`isModelAllowed`/`teamUsage` (read - any team member) and `updateTeam`/`deleteTeam`/`updateTeamModelAllowlist`/`updateTeamQuota` (write - `OWNER`/`ADMIN` of *that* team) in [internal/api/team.go](../internal/api/team.go)/[internal/api/usage.go](../internal/api/usage.go); and, for the same reason, `createAccount` (elevated role), `updateAccount` (role change), `deleteAccount` in [internal/api/account.go](../internal/api/account.go), and `createAPIKey`/`listAPIKeys`/`revokeAPIKey` in [internal/api/apikey.go](../internal/api/apikey.go) - all now scoped by the *target* account's current team, falling back to a plain role check only when the target has no team (mirrors `createTeam`'s bootstrap-time behavior, where there's no team yet to scope against).
+3. `createTeam` is intentionally unchanged (`requireRole` only) - there's no existing team to scope a *creation* against.
+4. Intentionally **not** changed: `listTeams`/`listAccounts` still return every team/account platform-wide to any authenticated caller (used by the web console's admin-style directory views). Restricting these to "only your own team" would be a much bigger product change (there's currently no "platform admin" role/concept at all, only per-team `OWNER`/`ADMIN`) and would break that UI; left as a known, explicitly-scoped-out gap for a future decision rather than fixed silently.
+5. Test impact: this reverses a Phase 1 design decision (§1b.5) that a large share of the existing Phase 1-3 test suite was written against - `testResolver`'s default principal is deliberately unaffiliated with any team ("RBAC-exempt", see its doc comment in [internal/api/account_test.go](../internal/api/account_test.go)), and several `_AllowedForAdmin`-style tests had to be updated to scope their test principal to the team under test via `asPrincipal(ctx, accountID, role, teamID)`. New `_DeniedForAdminOfAnotherTeam`/`_DeniedForNonMember` tests assert the actual cross-team denial, not just that the old tests still pass. Verified live end-to-end too: two real accounts, each creating and owning their own team via the real GraphQL API, confirmed same-team access allowed and cross-team access denied (`forbidden: not a member of this team`) for `team`, `updateTeamQuota`, and `teamUsage`.
 
 ## Phase 5: Observability and Operational Hardening — Planned
 

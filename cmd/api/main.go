@@ -7,6 +7,8 @@ import (
 	"github.com/hovanhoa/llmgateway/internal/db"
 	"github.com/hovanhoa/llmgateway/internal/db/migrations"
 	api "github.com/hovanhoa/llmgateway/internal/http"
+	"github.com/hovanhoa/llmgateway/internal/policy"
+	"github.com/hovanhoa/llmgateway/internal/quota"
 	"github.com/hovanhoa/llmgateway/pkg/core/apm"
 	"github.com/hovanhoa/llmgateway/pkg/core/log"
 	"github.com/hovanhoa/llmgateway/pkg/core/secrets"
@@ -57,6 +59,8 @@ func main() {
 	service := api.NewService(api.Dependencies{
 		DB:        database,
 		Providers: newProviderRegistry(),
+		Quota:     quota.NewChecker(kvStore),
+		Policy:    policy.DefaultChain(),
 		Clock:     clock.New(),
 	})
 

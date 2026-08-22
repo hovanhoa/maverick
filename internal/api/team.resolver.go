@@ -30,6 +30,11 @@ func (r *mutationResolver) UpdateTeamModelAllowlist(ctx context.Context, teamID 
 	return r.updateTeamModelAllowlist(ctx, teamID, allowlist)
 }
 
+// UpdateTeamQuota is the resolver for the updateTeamQuota field.
+func (r *mutationResolver) UpdateTeamQuota(ctx context.Context, teamID string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Team, error) {
+	return r.updateTeamQuota(ctx, teamID, monthlyTokenBudget, clearMonthlyTokenBudget)
+}
+
 // Teams is the resolver for the teams field.
 func (r *queryResolver) Teams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
 	return r.listTeams(ctx, limit, offset)

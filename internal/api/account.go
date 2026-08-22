@@ -13,7 +13,15 @@ func (r *Resolver) createAccount(ctx context.Context, email string, username str
 		resolvedRole = *role
 	}
 	if resolvedRole != model.RoleMember {
-		if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+		// teamID is the team the new account is being created into, so an
+		// OWNER/ADMIN may only do this for their own team. An unaffiliated
+		// creation (teamID == nil) has no team to scope by, matching
+		// createTeam's bootstrap-time behavior.
+		if teamID != nil {
+			if err := requireTeamRole(ctx, *teamID, model.RoleOwner, model.RoleAdmin); err != nil {
+				return nil, err
+			}
+		} else if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
 			return nil, err
 		}
 	}
@@ -71,7 +79,9 @@ func (r *Resolver) getMe(ctx context.Context) (*model.Account, error) {
 
 func (r *Resolver) updateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
 	if role != nil {
-		if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+		// Changing someone's role is scoped by their *current* team - an
+		// OWNER/ADMIN may only do this for members of their own team.
+		if err := requireOwnerOrAdminOfAccountsTeam(ctx, r, id); err != nil {
 			return nil, err
 		}
 	}
@@ -79,8 +89,28 @@ func (r *Resolver) updateAccount(ctx context.Context, id string, email *string, 
 }
 
 func (r *Resolver) deleteAccount(ctx context.Context, id string) (bool, error) {
-	if err := requireRole(ctx, model.RoleOwner, model.RoleAdmin); err != nil {
+	if err := requireOwnerOrAdminOfAccountsTeam(ctx, r, id); err != nil {
 		return false, err
 	}
 	return r.deps.Database.DeleteAccount(ctx, id)
+}
+
+// requireOwnerOrAdminOfAccountsTeam requires the caller to be OWNER/ADMIN
+// of the target account's current team. An unaffiliated target (no team,
+// or not found - DeleteAccount/UpdateAccount on a missing id is a no-op
+// handled downstream) falls back to a plain role check, since there's no
+// team to scope by.
+func requireOwnerOrAdminOfAccountsTeam(ctx context.Context, r *Resolver, accountID string) error {
+	target, err := r.deps.Database.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	var targetTeamID *string
+	if target != nil {
+		targetTeamID = target.TeamID
+	}
+	if targetTeamID != nil {
+		return requireTeamRole(ctx, *targetTeamID, model.RoleOwner, model.RoleAdmin)
+	}
+	return requireRole(ctx, model.RoleOwner, model.RoleAdmin)
 }

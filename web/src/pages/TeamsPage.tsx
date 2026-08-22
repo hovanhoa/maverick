@@ -1,14 +1,23 @@
 import * as React from 'react';
-import { PlusIcon, PencilIcon, TrashIcon, CheckIcon, XMarkIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, PencilIcon, TrashIcon, CheckIcon, XMarkIcon, AdjustmentsHorizontalIcon, ChartBarIcon } from '@heroicons/react/24/outline';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { ErrorAlert } from '../components/ui/Alert';
 import { Modal } from '../components/ui/Modal';
 import { Field, TextInput, Textarea } from '../components/ui/Field';
-import { listTeams, createTeam, updateTeam, deleteTeam, updateTeamModelAllowlist, isModelAllowed } from '../lib/teams';
+import {
+  listTeams,
+  createTeam,
+  updateTeam,
+  deleteTeam,
+  updateTeamModelAllowlist,
+  isModelAllowed,
+  updateTeamQuota,
+  getTeamUsage
+} from '../lib/teams';
 import { useAuth } from '../lib/auth';
-import type { Team } from '../lib/api';
+import type { Team, UsageSummary } from '../lib/api';
 
 export function TeamsPage() {
   const { isOwnerOrAdmin } = useAuth();
@@ -19,6 +28,7 @@ export function TeamsPage() {
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
   const [editingAllowlist, setEditingAllowlist] = React.useState<Team | null>(null);
+  const [editingQuota, setEditingQuota] = React.useState<Team | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -89,6 +99,7 @@ export function TeamsPage() {
               <tr>
                 <th className="px-5 py-2.5 font-medium">Name</th>
                 <th className="px-5 py-2.5 font-medium">Model access</th>
+                <th className="px-5 py-2.5 font-medium">Monthly quota</th>
                 <th className="px-5 py-2.5 font-medium">Created</th>
                 <th className="px-5 py-2.5" />
               </tr>
@@ -123,6 +134,13 @@ export function TeamsPage() {
                       <Badge tone="ok">{team.modelAllowlist.length} rule{team.modelAllowlist.length === 1 ? '' : 's'}</Badge>
                     )}
                   </td>
+                  <td className="px-5 py-3">
+                    {team.monthlyTokenBudget === null ? (
+                      <Badge tone="neutral">Unlimited</Badge>
+                    ) : (
+                      <Badge tone="ok">{team.monthlyTokenBudget.toLocaleString()} tok/mo</Badge>
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-neutral-500 dark:text-neutral-400">{new Date(team.createdAt).toLocaleDateString()}</td>
                   <td className="px-5 py-3 text-right">
                     <div className="flex justify-end gap-1">
@@ -130,6 +148,9 @@ export function TeamsPage() {
                         <>
                           <Button variant="ghost" className="px-2" title="Model access" onClick={() => setEditingAllowlist(team)}>
                             <AdjustmentsHorizontalIcon className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" className="px-2" title="Quota & usage" onClick={() => setEditingQuota(team)}>
+                            <ChartBarIcon className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" className="px-2" title="Rename" onClick={() => startRename(team)}>
                             <PencilIcon className="h-4 w-4" />
@@ -145,7 +166,7 @@ export function TeamsPage() {
               ))}
               {!loading && teams.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-5 py-10 text-center text-sm text-neutral-400">
+                  <td colSpan={5} className="px-5 py-10 text-center text-sm text-neutral-400">
                     No teams yet.
                   </td>
                 </tr>
@@ -168,6 +189,14 @@ export function TeamsPage() {
         onClose={() => setEditingAllowlist(null)}
         onSaved={async () => {
           setEditingAllowlist(null);
+          await load();
+        }}
+      />
+      <QuotaModal
+        team={editingQuota}
+        onClose={() => setEditingQuota(null)}
+        onSaved={async () => {
+          setEditingQuota(null);
           await load();
         }}
       />
@@ -291,7 +320,7 @@ function AllowlistModal({
           <Textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} placeholder="Leave empty for unrestricted" />
         </Field>
         <p className="text-xs text-neutral-400">
-          No proxy path enforces this yet (that's Phase 3) - this configures the allowlist ahead of it.
+          Enforced on every /v1/chat/completions call - a model not on this list is rejected before it reaches a provider.
         </p>
         {error && <ErrorAlert message={error} />}
         <div className="flex justify-end gap-2 pt-2">
@@ -320,5 +349,105 @@ function AllowlistModal({
         )}
       </div>
     </Modal>
+  );
+}
+
+function QuotaModal({ team, onClose, onSaved }: { team: Team | null; onClose: () => void; onSaved: () => void }) {
+  const [unlimited, setUnlimited] = React.useState(true);
+  const [budget, setBudget] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [usage, setUsage] = React.useState<UsageSummary | null>(null);
+  const [usageError, setUsageError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!team) return;
+    setUnlimited(team.monthlyTokenBudget === null);
+    setBudget(team.monthlyTokenBudget === null ? '' : String(team.monthlyTokenBudget));
+    setError(null);
+    setUsage(null);
+    setUsageError(null);
+    getTeamUsage(team.id)
+      .then(setUsage)
+      .catch((err) => setUsageError(err instanceof Error ? err.message : String(err)));
+  }, [team]);
+
+  if (!team) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!unlimited && (!budget.trim() || Number(budget) <= 0)) {
+      setError('Enter a positive token budget, or check "Unlimited".');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateTeamQuota(team.id, unlimited ? null : Number(budget));
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Quota & usage - ${team.name}`}>
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">This calendar month</p>
+        {usageError && <ErrorAlert message={usageError} />}
+        {!usageError && (
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <UsageStat label="Requests" value={usage ? usage.requestCount.toLocaleString() : '…'} />
+            <UsageStat label="Total tokens" value={usage ? usage.totalTokens.toLocaleString() : '…'} />
+            <UsageStat label="Prompt / completion" value={usage ? `${usage.promptTokens.toLocaleString()} / ${usage.completionTokens.toLocaleString()}` : '…'} />
+            <UsageStat label="Est. cost" value={usage ? `$${usage.costUsd.toFixed(4)}` : '…'} />
+          </dl>
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-5 space-y-3 border-t border-neutral-950/5 pt-4 dark:border-white/10">
+        <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Monthly token budget</p>
+        <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
+          <input
+            type="checkbox"
+            checked={unlimited}
+            onChange={(e) => setUnlimited(e.target.checked)}
+            className="h-4 w-4 rounded border-neutral-300 text-neutral-900 dark:border-white/20"
+          />
+          Unlimited
+        </label>
+        {!unlimited && (
+          <Field label="Tokens per calendar month (prompt + completion, summed across the team's keys)">
+            <TextInput
+              type="number"
+              min={1}
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+              placeholder="e.g. 1000000"
+            />
+          </Field>
+        )}
+        {error && <ErrorAlert message={error} />}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={saving}>
+            {saving ? 'Saving…' : 'Save quota'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function UsageStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase text-neutral-400">{label}</dt>
+      <dd className="mt-0.5 text-sm font-medium text-neutral-900 dark:text-white">{value}</dd>
+    </div>
   );
 }

@@ -20,6 +20,14 @@ import (
 // would need to for any RBAC-exempt caller. Tests exercising RBAC itself,
 // or the auto-OWNER assignment itself, should install their own principal
 // via auth.WithPrincipal against a real, persisted account.
+//
+// This default principal has no team (OrgID ""), so it's only "exempt"
+// from plain role checks (requireRole) - team-scoped operations
+// (requireTeamMember/requireTeamRole) still deny it, since OWNER/ADMIN are
+// scoped to the team you belong to, not global. A test that needs to act
+// on a specific team it just created should scope a fresh context to that
+// team via asPrincipal(ctx, "account_test_caller", model.RoleOwner,
+// teamID) rather than reusing this one.
 func testResolver(t *testing.T) (*Resolver, context.Context) {
 	t.Helper()
 	ctx := context.Background()
@@ -234,11 +242,13 @@ func TestAccountResolver_Accounts_ClampsLimit(t *testing.T) {
 	assert.False(t, page.HasNextPage)
 }
 
-// asPrincipal returns a copy of ctx authenticated as accountID with the given role.
-func asPrincipal(ctx context.Context, accountID string, role model.Role) context.Context {
+// asPrincipal returns a copy of ctx authenticated as accountID with the
+// given role, scoped to teamID ("" for an unaffiliated principal).
+func asPrincipal(ctx context.Context, accountID string, role model.Role, teamID string) context.Context {
 	principal := &auth.Principal[model.Identity, model.Role]{
-		ID:   accountID,
-		Type: model.IdentityAccount,
+		ID:    accountID,
+		Type:  model.IdentityAccount,
+		OrgID: teamID,
 	}
 	return auth.WithPrincipal(ctx, principal.WithRoles(role))
 }
@@ -257,7 +267,7 @@ func TestAccountResolver_UpdateAccount_RoleChange_DeniedForMember(t *testing.T) 
 	caller, err := mr.CreateAccount(ctx, "caller@example.com", "caller", nil, nil)
 	require.NoError(t, err)
 
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	admin := model.RoleAdmin
 	_, err = mr.UpdateAccount(memberCtx, target.ID, nil, nil, nil, nil, &admin)
@@ -284,12 +294,39 @@ func TestAccountResolver_UpdateAccount_RoleChange_AllowedForAdmin(t *testing.T) 
 	caller, err := mr.CreateAccount(ctx, "caller2@example.com", "caller2", nil, nil)
 	require.NoError(t, err)
 
-	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin)
+	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, "")
 
 	admin := model.RoleAdmin
 	updated, err := mr.UpdateAccount(adminCtx, target.ID, nil, nil, nil, nil, &admin)
 	require.NoError(t, err)
 	assert.Equal(t, model.RoleAdmin, updated.Role)
+}
+
+// TestAccountResolver_UpdateAccount_RoleChange_DeniedForAdminOfAnotherTeam
+// asserts the strict-per-team RBAC rule: an ADMIN of one team cannot change
+// the role of an account belonging to a different team.
+func TestAccountResolver_UpdateAccount_RoleChange_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "role-change-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "role-change-team-b")
+	require.NoError(t, err)
+
+	target, err := mr.CreateAccount(ctx, "target-in-b@example.com", "targetinb", &teamB.ID, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "admin-of-a-for-role@example.com", "adminofaforrole", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	admin := model.RoleAdmin
+	_, err = mr.UpdateAccount(adminOfACtx, target.ID, nil, nil, nil, nil, &admin)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
 }
 
 // TestAccountResolver_DeleteAccount_DeniedForMember asserts the business rule
@@ -306,9 +343,39 @@ func TestAccountResolver_DeleteAccount_DeniedForMember(t *testing.T) {
 	caller, err := mr.CreateAccount(ctx, "deleter@example.com", "deleter", nil, nil)
 	require.NoError(t, err)
 
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	_, err = mr.DeleteAccount(memberCtx, target.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+
+	still, err := (&queryResolver{r}).Account(ctx, target.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, still)
+}
+
+// TestAccountResolver_DeleteAccount_DeniedForAdminOfAnotherTeam asserts the
+// strict-per-team RBAC rule for deletion: an ADMIN of one team cannot
+// delete an account belonging to a different team.
+func TestAccountResolver_DeleteAccount_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "delete-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "delete-team-b")
+	require.NoError(t, err)
+
+	target, err := mr.CreateAccount(ctx, "target-to-delete-in-b@example.com", "targettodeleteinb", &teamB.ID, nil)
+	require.NoError(t, err)
+
+	caller, err := mr.CreateAccount(ctx, "admin-of-a-for-delete@example.com", "adminofafordelete", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	_, err = mr.DeleteAccount(adminOfACtx, target.ID)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 
@@ -329,7 +396,7 @@ func TestAccountResolver_CreateAccount_ElevatedRole_DeniedForMember(t *testing.T
 	caller, err := mr.CreateAccount(ctx, "creator@example.com", "creator", nil, nil)
 	require.NoError(t, err)
 
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	admin := model.RoleAdmin
 	_, err = mr.CreateAccount(memberCtx, "elevated@example.com", "elevated", nil, &admin)
@@ -349,7 +416,7 @@ func TestAccountResolver_Me(t *testing.T) {
 	caller, err := mr.CreateAccount(ctx, "whoami@example.com", "whoami", nil, nil)
 	require.NoError(t, err)
 
-	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember)
+	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	me, err := qr.Me(memberCtx)
 	require.NoError(t, err)

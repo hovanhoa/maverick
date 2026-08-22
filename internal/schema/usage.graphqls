@@ -1,0 +1,38 @@
+"""
+UsageSummary aggregates usage_event rows over a time window.
+"""
+type UsageSummary {
+    """
+    Number of proxy calls counted in this summary
+    """
+    requestCount: Int!
+
+    """
+    Total prompt (input) tokens across all counted calls
+    """
+    promptTokens: Int!
+
+    """
+    Total completion (output) tokens across all counted calls
+    """
+    completionTokens: Int!
+
+    """
+    Total tokens (prompt + completion) across all counted calls
+    """
+    totalTokens: Int!
+
+    """
+    Estimated cost in USD across all counted calls. Pricing is illustrative/
+    approximate, not a live-synced price list.
+    """
+    costUsd: Float!
+}
+
+extend type Query {
+    """
+    Aggregate LLM proxy usage for a team, optionally restricted to calls
+    since the given timestamp (default: start of the current calendar month).
+    """
+    teamUsage(teamId: ID!, since: Time): UsageSummary!
+}
