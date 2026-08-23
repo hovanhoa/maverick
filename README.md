@@ -1,357 +1,168 @@
-# go-ai-gateway
+# Maverick
 
-Internal AI Gateway platform written in Go to centralize, secure, and observe AI/LLM usage across the engineering organization.
+An AI Gateway platform that centralizes, secures, and observes LLM usage
+across an engineering organization. Maverick sits between your teams' tools
+(Claude Code, Cursor, CI bots, internal apps) and the LLM providers they call,
+giving you one place for authentication, governance, usage tracking, and
+multi-provider routing.
 
 ## Why This Project Exists
 
-Teams are adopting AI tools quickly (Claude Code, Cursor, IDE extensions, CI bots, internal apps). Without a shared gateway, usage becomes fragmented, difficult to govern, and hard to optimize.
+Teams adopt AI tools quickly - IDE extensions, CI bots, internal apps. Without
+a shared gateway, usage becomes fragmented, hard to govern, and hard to
+optimize for cost. Maverick provides a single control plane and data plane for
+LLM access so an organization can:
 
-`go-ai-gateway` provides a single control plane and data plane for AI access so the organization can:
-
-- **Enforce security and policy controls** - centralized request/response filtering and validation
+- **Enforce security and policy controls** - centralized request/response filtering and redaction
 - **Track usage and cost transparently** - token-level metering across all providers
-- **Manage quotas and permissions** - per team/member/model quota enforcement
-- **Route traffic intelligently** - failover, load balancing, and provider selection
-- **Support internal AI automation** - foundation for future agents and workflows
-- **Maintain audit trails** - comprehensive logging and observability
+- **Manage quotas and permissions** - per-team monthly token budgets and model allowlists
+- **Route traffic across providers** - one OpenAI-compatible endpoint in front of multiple backends
+- **Maintain audit trails** - structured logs, per-request logs, and traces for every call
 
 ## Quick Start
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.25+
 - PostgreSQL 14+
 - Redis 7+
-- Node.js 18+ (for web UI)
+- Node.js 18+ (for the web console)
 
 ### Setup
 
 ```bash
-# Install dependencies
-go mod download
-cd web && npm install && cd ..
+cp deployment/.env.example deployment/.env
+make docker-up    # Start PostgreSQL + Redis
+make run          # Start the API on :8080
 
-# Build the gateway
-make build
-
-# Start services (PostgreSQL and Redis required)
-make dev
+# First-time only: seed the first OWNER account + API key
+make seed
 ```
 
-The gateway will be available at `http://localhost:8080` and the web UI at `http://localhost:5173`.
+The API is available at `http://localhost:8080` (GraphQL at `/graphql`,
+health at `/ping`, metrics at `:9090/metrics`). To run the web console:
 
-## High-Level Objectives
+```bash
+make web-install
+make web-dev      # http://localhost:5173
+```
 
-1. Centralize AI usage behind one gateway
-2. Track token and cost usage per model/provider
-3. Apply security, prompt, and data policies
-4. Manage team/member/model quotas
-5. Route requests intelligently across multiple providers
-6. Support internal AI agents and workflows
-7. Prevent confidential data leakage
-8. Build reusable AI infrastructure
+## What's Implemented
 
-## Supported Providers
+### Access Control
+- API-key and username/password authentication
+- Role-based access control (`OWNER`/`ADMIN`/`MEMBER`), scoped per-team
+- Account avatar upload/serving
+- Team management, with a per-team model allowlist
 
-**Currently Implemented:**
-- Anthropic Claude (via Bedrock)
-- Amazon Bedrock
-- Google Vertex AI
+### LLM Proxy
+- `POST /v1/chat/completions`, OpenAI-compatible request/response shape,
+  including SSE streaming
+- Model routing via `"provider/model"` (e.g. `anthropic/claude-3-5-sonnet-20241022`)
+- Live provider adapters: **Anthropic**, **OpenAI**, **Gemini** (API-key based).
+  Bedrock and Vertex AI are scaffolded but not yet implemented (they need AWS
+  SigV4 / GCP OAuth2, not just an API key)
+- A web-based playground for trying the proxy interactively
 
-**Planned:**
-- OpenAI
-- Local/self-hosted models
-- Azure OpenAI
-
-The architecture is provider-agnostic to avoid vendor lock-in.
-
-## Core Platform Capabilities
-
-### Security & Access Control
-- Authentication and RBAC via API keys
-- Team and user management
-- API key generation and revocation
-- Request authentication and validation
-
-### Usage & Billing
-- Token-level usage tracking
-- Cost monitoring per team/user/model
-- Quota enforcement (tokens, requests, rate limits)
-- Detailed usage analytics and reporting
+### Governance & Metering
+- Per-team, calendar-month token quota with pre-call reservation and post-call reconciliation
+- Policy chain (prompt length limits, blocked patterns, sensitive-data redaction) evaluated before every provider call
+- Usage/cost tracking per team, with a web dashboard
+- Per-request audit log (request logs page in the web console)
 
 ### Observability
-- Comprehensive request/response logging
-- Distributed tracing with OpenTelemetry
-- Audit logs for security and compliance
-- Metrics collection and export
+- Structured logs with request id, account, team, provider, model, latency, status
+- OpenTelemetry tracing across the request lifecycle and provider/storage calls
+- Prometheus metrics, including quota-denial and stream-duration counters
+- Header/body redaction so API keys and raw prompts never land in logs verbatim
 
-### Intelligence
-- Model routing and provider selection
-- Retry and fallback handling
-- Prompt filtering and validation
-- Sensitive data detection
-- Internal system prompt injection
-
-### Compatibility
-- OpenAI-compatible REST API endpoints
-- Streaming response support
-- Multi-provider request abstraction
+See [docs/implementation-plan.md](docs/implementation-plan.md) for the full
+phase-by-phase history and design rationale behind each of these.
 
 ## Project Structure
 
 ```
 .
 ├── cmd/
-│   └── gateway/          # Main gateway service
+│   ├── api/              # Service entrypoint: connects DB/Redis, runs migrations, starts HTTP
+│   └── seed/             # One-off CLI to seed the first OWNER account + API key
 ├── internal/
-│   ├── api/              # HTTP handlers and routing
-│   ├── auth/             # Authentication and RBAC
-│   ├── policy/           # Request/response policies
-│   ├── provider/         # Provider adapters and abstraction
-│   ├── quota/            # Quota management and enforcement
-│   ├── usage/            # Token/cost metering
-│   ├── observability/    # Logging, tracing, metrics
-│   └── storage/          # PostgreSQL/Redis repositories
+│   ├── api/              # GraphQL resolvers (account, team, apikey, usage, requestlog)
+│   ├── authz/            # RBAC: Authorizer + Principal wiring
+│   ├── db/               # Repository layer (Postgres via Squirrel) + migrations
+│   ├── http/             # Gin HTTP service: routes, auth middleware, login, avatar
+│   ├── model/            # gqlgen-generated models + hand-written domain types
+│   ├── policy/           # Pre-call policy chain (length limits, redaction, blocklists)
+│   ├── provider/         # Provider abstraction + adapters (anthropic/openai/gemini/bedrock/vertexai)
+│   ├── proxy/            # POST /v1/chat/completions handler
+│   ├── quota/            # Per-team monthly token budget enforcement
+│   ├── schema/            # GraphQL schema (.graphqls), source of truth for codegen
+│   └── usage/             # Cost calculation + usage_event persistence
 ├── pkg/
-│   ├── openai/           # OpenAI-compatible models
-│   ├── core/             # Shared utilities and infrastructure
-│   └── driver/           # Database drivers
-├── web/                  # React/TypeScript dashboard UI
-├── deployment/           # Docker and deployment configs
-└── docs/                 # Architecture and design docs
+│   ├── openai/           # OpenAI-compatible request/response types
+│   ├── core/             # Shared framework: auth, log, apm, encoding, http
+│   └── driver/           # SQLStore (pgx) / KVStore (go-redis) interfaces + implementations
+├── web/                  # React/TypeScript management console
+├── deployment/           # Docker Compose + env config
+├── scripts/              # Codegen scripts + k6 load test
+└── docs/                 # Implementation plan / design notes
 ```
 
 ## Development
 
-### Build Commands
-
 ```bash
-make dev          # Start development server
-make build        # Build the gateway binary
-make test         # Run all tests
-make lint         # Run linters
-make fmt          # Format code
+make lint             # fmt + vet
+make test             # Run all tests
+make test-race        # Tests with race detector
+make build             # Build to ./bin/api
+make generate          # Regenerate GraphQL code (gqlgen + openapi)
+make docker-down
+make docker-logs
 ```
 
-### Testing
-
+Run a single test:
 ```bash
-go test ./...
-go test -v ./internal/provider/...
-go test -bench ./...
+go test ./internal/db/... -run TestMigrate
 ```
 
-### Database
-
-PostgreSQL migrations are managed automatically on startup. Redis is used for caching and rate limiting.
-
-### Web Dashboard
-
-The web UI provides:
-- Account management
-- API key management
-- Team and member management
-- Usage and cost analytics
-- Quota configuration
+### Web console
 
 ```bash
-cd web
-npm run dev      # Development with hot reload
-npm run build    # Production build
+make web-install
+make web-dev      # Development with hot reload, :5173
+make web-build    # Production build
+make web-lint     # Type-check
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│              Users & Tools                      │
-│  • Claude Code / Cursor                         │
-│  • VSCode extensions                            │
-│  • CI/CD pipelines                              │
-│  • Internal applications                        │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-   ┌───────────────────────────────────┐
-   │    go-ai-gateway                  │
-   ├───────────────────────────────────┤
-   │  • Authentication & RBAC          │
-   │  • Request validation & routing   │
-   │  • Policy enforcement             │
-   │  • Quota & rate limiting          │
-   │  • Usage tracking & metering      │
-   │  • Observability & logging        │
-   └──────┬──────────────┬─────────────┘
-          │              │
-     ┌────v──────┐  ┌────v─────┐
-     │PostgreSQL │  │  Redis    │
-     │(Usage,    │  │(Cache,    │
-     │Quotas)    │  │Rates)     │
-     └───────────┘  └───────────┘
-          │
-          v
-   ┌──────────────────┐
-   │   Providers      │
-   ├──────────────────┤
-   │  • Anthropic     │
-   │  • Bedrock       │
-   │  • Vertex AI     │
-   │  • OpenAI (soon) │
-   └──────────────────┘
+HTTP Request -> Gin middleware (CORS, logging, Sentry)
+             -> /graphql (management API) or /v1/chat/completions (LLM proxy)
+             -> Auth middleware (API key or session) -> RBAC resolver checks
+             -> internal/api or internal/proxy -> internal/db / provider adapters
+             -> PostgreSQL (accounts, teams, usage, request logs)
+                Redis (quota counters)
+                Anthropic / OpenAI / Gemini (live) / Bedrock / Vertex AI (scaffolded)
 ```
-
-## Technical Stack
-
-**Backend:**
-- Go 1.21+ (type-safe, concurrent, fast)
-- PostgreSQL 14+ (primary data store)
-- Redis 7+ (caching, rate limiting)
-- OpenTelemetry (distributed tracing, metrics)
-
-**Frontend:**
-- React 18 (UI framework)
-- TypeScript (type safety)
-- Tailwind CSS (styling)
-- Vite (build tooling)
-
-**Infrastructure:**
-- Docker & Docker Compose
-- REST APIs (OpenAI-compatible)
-- OpenAPI/Swagger documentation
-- GraphQL (internal APIs)
-
-**Optional:**
-- Kubernetes (deployment)
-- Datadog/New Relic (APM)
-- NATS/Kafka (event streaming)
-
-## Design Principles
-
-1. **Lightweight and easy to operate** - minimal dependencies, clear deployment story
-2. **Provider-agnostic** - abstracted provider interface prevents vendor lock-in
-3. **Security-first** - default deny, explicit allow, audit everything
-4. **Extensible architecture** - clean interfaces for adding providers and policies
-5. **Observable by default** - comprehensive logging, tracing, and metrics
-6. **Production-ready** - error handling, retries, failover, graceful degradation
-7. **Ready for future automation** - foundation for internal AI agents and workflows
-
-## Intended Users
-
-**Direct Users:**
-- Frontend engineers
-- Backend engineers
-- QA engineers
-- Product managers
-- Designers
-
-**Platform Operators:**
-- DevOps/platform engineers
-- Security teams
-- Finance/billing teams
-
-**Future:**
-- Internal AI agents and automation workflows
 
 ## Configuration
 
-Environment variables:
+Key environment variables (see [deployment/.env.example](deployment/.env.example)):
 
-```bash
-# Server
-GATEWAY_PORT=8080
-GATEWAY_ENV=development
+- `ENVIRONMENT` - `dev`/`staging`/`production` (affects logging format and code paths)
+- `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASS`/`DB_NAME` - PostgreSQL connection
+- `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASS` - Redis connection
+- `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY` - optional; a provider is only registered when its key is set
 
-# Database
-DATABASE_URL=postgres://user:pass@localhost:5432/gateway
-REDIS_URL=redis://localhost:6379
+## Testing
 
-# Providers
-AWS_REGION=us-west-2
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-
-GCP_PROJECT_ID=...
-GCP_CREDENTIALS=...
-
-# Observability
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-LOG_LEVEL=info
-```
-
-See `.env.example` and `CLAUDE.md` for detailed configuration.
-
-## Security & Compliance
-
-### Data Handling
-- Prompts and responses treated as sensitive
-- Minimal storage of raw payloads (tokens + metadata only)
-- Automatic secrets/PII redaction in logs and traces
-- TLS for all external communications
-- Database encryption at rest
-
-### Access Control
-- API key based authentication
-- Role-based access control (RBAC)
-- Least privilege enforcement
-- API key scoping and rotation
-
-### Audit & Monitoring
-- Comprehensive audit logs
-- Request/response tracing
-- Rate limiting and quota enforcement
-- Anomaly detection ready
-
-### Compliance
-- Ready for SOC 2, HIPAA, GDPR compliance
-- Data residency controls
-- Access audit trails
-- User consent tracking
-
-## Roadmap
-
-### Phase 1 (Current) - MVP Gateway
-- [x] Core gateway service
-- [x] Authentication & API keys
-- [x] Bedrock + Vertex AI support
-- [x] Usage tracking & quotas
-- [x] Web dashboard
-- [ ] OpenAI integration
-- [ ] Advanced policy engine
-
-### Phase 2 - Enterprise Features
-- [ ] Multi-workspace support
-- [ ] Advanced analytics & reporting
-- [ ] Custom policy builders
-- [ ] Model fine-tuning support
-- [ ] Webhook integrations
-
-### Phase 3 - Automation & Intelligence
-- [ ] AI Agent runtime
-- [ ] Workflow automation engine
-- [ ] Internal prompt registry
-- [ ] Knowledge/RAG system
-- [ ] GitHub/GitLab integration
-- [ ] Jira integration
-
-### Phase 4 - Scale
-- [ ] Multi-region deployment
-- [ ] Advanced load balancing
-- [ ] Provider marketplace
-- [ ] Self-service onboarding
-
-## Contributing
-
-Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Getting Help
-
-- **Documentation**: See `docs/` for architecture and design docs
-- **Issues**: File bugs and feature requests on GitHub
-- **Architecture**: See `CLAUDE.md` for detailed system design
+Test DB utilities live in `internal/db/testdb/`. Integration tests use real
+PostgreSQL/Redis connections, not mocks - this is intentional to catch real
+migration/driver issues.
 
 ## Project Status
 
-**Status**: Early Production (MVP Phase)
-
-Current focus is establishing a stable, secure, and observable gateway foundation with clean provider abstraction and strong security/observability defaults.
-
-See [CLAUDE.md](CLAUDE.md) for detailed architecture decisions and implementation notes.
+Early production (MVP). Phases 1-6 (accounts/teams/RBAC, the LLM proxy,
+governance/metering, observability, and the login/avatar/playground/usage
+console) are done - see [docs/implementation-plan.md](docs/implementation-plan.md)
+for what's next.

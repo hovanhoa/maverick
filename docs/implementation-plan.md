@@ -1,4 +1,4 @@
-# Go AI Gateway Implementation Plan
+# Maverick Implementation Plan
 
 This document tracks the feature-by-feature roadmap. Status markers (`Done` /
 `In progress` / `Planned`) reflect the actual state of the codebase, not the
@@ -153,6 +153,32 @@ Before implementing, audited what `pkg/core/http`/`pkg/core/apm` already provide
 4. **Redaction layer for logs**: found and fixed a real, live leak - the shared canonical request logger (`pkg/core/http/middleware.go`'s `RequestLogger`) wrote `Authorization`/`Cookie` header values to logs verbatim on *every* request, meaning every API key used against this gateway was in plaintext in the logs. Fixed generically (`redactHeaders`, replaces the value with `"[REDACTED]"`) since this is shared framework code other consumers rely on too. Separately, `RequestLogger`/`NewInstrumentedClient` both log full JSON request/response bodies by default, which for this gateway means raw LLM prompts and completions - added `WithBodyLogDropper` (suppresses body fields for a route, keeps the rest of the canonical line) and `WithoutBodyLogging` (same idea for `NewInstrumentedClient`), and wired both for `/v1/chat/completions` and the provider clients respectively.
 5. **Load tests; tune retries/timeouts/pools**: `scripts/loadtest/gateway.js` (k6) load-tests this gateway's own overhead (auth, RBAC, quota/policy prechecks, DB reads) without calling a real provider - see [scripts/loadtest/README.md](../scripts/loadtest/README.md) for usage and what to look at if numbers regress. Verified locally (5 VUs / 8s against the dev stack: p95 ≈2.5ms, 0% check failures). Pool/timeout tuning was scoped conservatively: `pkg/driver/postgres`/`pkg/driver/redis` are shared framework code used beyond this project, so rather than guess new pool-size numbers with no load-test evidence behind them, only the two *unambiguously missing* safety nets were added - a Postgres connect timeout + max connection lifetime, and a Redis max connection age - both previously unset (unbounded), which risks silently stale connections behind a load balancer. Retry backoff (`internal/provider/retry.go`) was already tuned in Phase 3/4 and left as-is.
 6. **Unrelated bug found via `go test -race` while verifying this phase, fixed anyway**: `pkg/core/http`'s `Service.Start()` assigns a default `healthFn` ~500ms after the server starts accepting connections, and `GracefulStop` reassigns `healthFn`/`isStopping` from the shutdown path - both racing, unsynchronized, against the `/healthz` handler reading them on every request. Pre-existing, unrelated to any project phase, but a real data race nonetheless; fixed with a `sync.RWMutex` guarding both fields (`Service.getHealthFn`/`setHealthFn`/`setStopping` in [pkg/core/http/service.go](../pkg/core/http/service.go)), which also required changing `Router()`/`Handler()` from value to pointer receivers (`go vet`'s `copylocks` check correctly flagged copying a struct that now contains a mutex). Verified with `go test -race ./pkg/core/http/...`.
+
+## Phase 6: Login, Avatars, Request Log, Playground, Usage Dashboard — Done
+
+### Username/password login — Done
+1. `account.password_hash` column (migration `00005_account_password`), set via `db.HashPassword`/`SetAccountPassword`/`SetRandomAccountPassword` (bcrypt, mirrors the API-key convention of never persisting the plaintext) — see [internal/db/password.go](../internal/db/password.go).
+2. `POST /login` (not a GraphQL mutation — the whole `/graphql` route already requires an API key, which is unusable for the one request that must work before the caller has a key): verifies username/password via `db.VerifyAccountPassword`, then mints and returns a fresh API key exactly like `createApiKey` would. Old keys from earlier logins remain valid until explicitly revoked. See [internal/http/login.go](../internal/http/login.go).
+3. `VerifyAccountPassword` intentionally collapses "no such username," "no password set," and "wrong password" into one `nil, nil` result so the caller can't distinguish them — avoids username enumeration.
+4. Web console: [auth.tsx](../web/src/lib/auth.tsx) now offers a username/password form as the default login path, falling back to pasting a raw API key.
+
+### Account avatars — Done
+1. `account_avatar(account_id, content_type, data, updated_at)` table (migration `00006_account_avatar_table`); stores image bytes base64-encoded as `TEXT` rather than `BYTEA` (see the migration's doc comment). Capped at `db.MaxAvatarBytes` (2 MiB) to keep the table bounded. See [internal/db/avatar.go](../internal/db/avatar.go).
+2. Plain REST, not GraphQL, since it moves raw image bytes: `GET /accounts/:id/avatar` (deliberately unauthenticated — an `<img>` tag can't attach an `Authorization` header, and a profile picture isn't sensitive), `POST`/`DELETE /accounts/:id/avatar` (self-service only, no OWNER/ADMIN-on-behalf-of path, unlike `updateAccount`). See [internal/http/avatar.go](../internal/http/avatar.go), registered in [internal/http/service.go](../internal/http/service.go).
+
+### Request log audit trail — Done
+1. `request_log` table (migration `00003_request_log_table`) — one row per proxy call (request id, account, team, provider, model, status, timing), persisted by `proxy.recordRequestLog` alongside the existing `usage_event` write. See [internal/db/request_log.go](../internal/db/request_log.go), [internal/proxy/proxy.go](../internal/proxy/proxy.go).
+2. Three GraphQL queries at different authorization tiers, mirroring the `usage` queries' tiering: `myRequestLogs` (any authenticated caller, own history only), `teamRequestLogs` (OWNER/ADMIN of that team — stricter than `teamUsage`'s member-readable tier, since this exposes every member's raw prompt/response content, not just aggregate numbers), `globalRequestLogs` (platform OWNER/ADMIN only). See [internal/api/requestlog.go](../internal/api/requestlog.go), [internal/schema/requestlog.graphqls](../internal/schema/requestlog.graphqls).
+3. `api_key.last_used_at` column added in the same wave (migration `00004_api_key_last_used`) so a team's API Keys page can show staleness, not just creation date.
+
+### Playground — Done
+- [PlaygroundPage.tsx](../web/src/pages/PlaygroundPage.tsx): a web-console page that calls the caller's own gateway (`POST /v1/chat/completions`) with their session key, for interactively trying providers/models and seeing the request/response shape without curl.
+
+### Usage dashboard — Done
+- [UsagePage.tsx](../web/src/pages/UsagePage.tsx) + [usage.ts](../web/src/lib/usage.ts): charts (via [Chart.tsx](../web/src/components/ui/Chart.tsx)) over the `teamUsageByAccount`/`teamUsageByModel`/`teamUsageDaily` queries added in Phase 4's usage work, previously only reachable via raw GraphQL.
+
+### Rebrand — Done
+- Web console renamed to **Maverick**; new favicon/logo/manifest set under [web/public/](../web/public/), unused theme-toggle component and dead theme lib removed.
 
 ## MVP Exit Criteria
 
