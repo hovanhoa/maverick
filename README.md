@@ -46,6 +46,34 @@ make web-install
 make web-dev      # http://localhost:5173
 ```
 
+## Editor Integration (Continue)
+
+Because Maverick's `/v1/chat/completions` is OpenAI-compatible, IDE extensions
+that support a custom OpenAI-compatible provider can point at it directly
+instead of a raw provider API key. For [Continue](https://continue.dev/) (VS
+Code / JetBrains), add a model entry to `~/.continue/config.yaml`:
+
+```yaml
+models:
+  - name: LLM Gateway (Claude Haiku)
+    provider: openai
+    model: anthropic/claude-haiku-4-5-20251001   # "<provider>/<model>" - see Model routing below
+    apiBase: http://localhost:8080/v1
+    apiKey: <your-gateway-api-key>
+    roles:
+      - chat
+```
+
+- Get `<your-gateway-api-key>` by logging into the web console (username/password,
+  or `make seed` for the first OWNER key) and copying a key from the API Keys page.
+- `model` must be `"<provider>/<model>"` per Maverick's routing convention (e.g.
+  `anthropic/claude-haiku-4-5-20251001`, `openai/gpt-4o`, `gemini/gemini-1.5-pro`) -
+  not the raw provider model name.
+- If the account's team has a model allowlist configured, the chosen model must
+  be on it or the call is rejected with a policy error.
+- Reload the Continue extension (or restart the IDE) after editing the config
+  for the new model to appear in the model picker.
+
 ## What's Implemented
 
 ### Access Control
