@@ -18,6 +18,9 @@ type Account struct {
 	Email string `json:"email"`
 	// Username of the account
 	Username string `json:"username"`
+	// Display name for the account, distinct from its login username. Unset
+	// until the account holder sets one.
+	Name *string `json:"name,omitempty"`
 	// Team this account belongs to, if any
 	TeamID *string `json:"teamId,omitempty"`
 	// Role governing what this account can manage
@@ -38,6 +41,27 @@ type AccountConnection struct {
 	HasNextPage bool `json:"hasNextPage"`
 }
 
+// AccountSecret is returned only once, when an account's password is set (at
+// creation) or reset. The plaintext password cannot be retrieved again after
+// this - if lost, it must be reset.
+type AccountSecret struct {
+	// The account this password belongs to
+	Account Account `json:"account"`
+	// The plaintext password. Store it now - it will not be shown again.
+	Password string `json:"password"`
+}
+
+// AccountUsage is one account's UsageSummary, e.g. a row in a team's
+// per-member usage breakdown.
+type AccountUsage struct {
+	AccountID        string  `json:"accountId"`
+	RequestCount     int     `json:"requestCount"`
+	PromptTokens     int     `json:"promptTokens"`
+	CompletionTokens int     `json:"completionTokens"`
+	TotalTokens      int     `json:"totalTokens"`
+	CostUsd          float64 `json:"costUsd"`
+}
+
 // ApiKey is metadata about an issued API key. The plaintext secret is never
 // available after creation.
 type APIKey struct {
@@ -51,6 +75,8 @@ type APIKey struct {
 	CreatedAt time.Time `json:"createdAt"`
 	// Timestamp the key was revoked, if it has been
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+	// Timestamp this key last successfully authenticated a request, if ever
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 }
 
 // ApiKeySecret is returned only once, at creation time. The key cannot be
@@ -60,6 +86,72 @@ type APIKeySecret struct {
 	APIKey APIKey `json:"apiKey"`
 	// The plaintext API key. Store it now - it will not be shown again.
 	Key string `json:"key"`
+}
+
+// DailyUsage is a coarser rollup than UsageSummary meant for charting a usage
+// trend: one point per calendar day (UTC), with request count, total tokens,
+// and cost, but no prompt/completion token split.
+type DailyUsage struct {
+	Date         time.Time `json:"date"`
+	RequestCount int       `json:"requestCount"`
+	TotalTokens  int       `json:"totalTokens"`
+	CostUsd      float64   `json:"costUsd"`
+}
+
+// ModelUsage is one provider/model pair's UsageSummary, e.g. a row of a
+// team's usage-by-model breakdown.
+type ModelUsage struct {
+	Provider         string  `json:"provider"`
+	Model            string  `json:"model"`
+	RequestCount     int     `json:"requestCount"`
+	PromptTokens     int     `json:"promptTokens"`
+	CompletionTokens int     `json:"completionTokens"`
+	TotalTokens      int     `json:"totalTokens"`
+	CostUsd          float64 `json:"costUsd"`
+}
+
+// RequestLog is one durable record of an attempted LLM proxy call - including
+// calls that never reached the provider (bad model format, team allowlist
+// block, quota exceeded, policy deny) - with the full raw request and (for
+// non-streaming calls) response content. This is the audit-trail counterpart
+// to UsageSummary/usage_event, which only records completed successful
+// calls.
+type RequestLog struct {
+	ID        string  `json:"id"`
+	RequestID string  `json:"requestId"`
+	AccountID string  `json:"accountId"`
+	TeamID    *string `json:"teamId,omitempty"`
+	Provider  *string `json:"provider,omitempty"`
+	Model     *string `json:"model,omitempty"`
+	// The raw model field as the caller sent it (e.g. "anthropic/claude-x"),
+	// captured even when it couldn't be resolved to a real provider/model.
+	RequestedModel string           `json:"requestedModel"`
+	Status         RequestLogStatus `json:"status"`
+	ErrorKind      *string          `json:"errorKind,omitempty"`
+	ErrorMessage   *string          `json:"errorMessage,omitempty"`
+	Stream         bool             `json:"stream"`
+	// The original request body, as raw JSON text, exactly as the caller
+	// sent it - before any team or baseline content-policy redaction.
+	RequestBody string `json:"requestBody"`
+	// The raw response body, as JSON text. Null on error, and null for a
+	// streamed call (streamed output is not currently reconstructed).
+	ResponseBody     *string   `json:"responseBody,omitempty"`
+	PromptTokens     *int      `json:"promptTokens,omitempty"`
+	CompletionTokens *int      `json:"completionTokens,omitempty"`
+	TotalTokens      *int      `json:"totalTokens,omitempty"`
+	CostUsd          *float64  `json:"costUsd,omitempty"`
+	LatencyMs        int       `json:"latencyMs"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
+// RequestLogConnection is a single page of request logs.
+type RequestLogConnection struct {
+	// Request logs contained in this page, most recently created first.
+	Items []RequestLog `json:"items"`
+	// Total number of request logs matching the query, ignoring pagination.
+	TotalCount int `json:"totalCount"`
+	// Whether a further page follows this one.
+	HasNextPage bool `json:"hasNextPage"`
 }
 
 // Team represents a team in the system
@@ -80,6 +172,11 @@ type Team struct {
 	// calendar month via the LLM proxy. Null means unlimited - no budget has
 	// been configured yet.
 	MonthlyTokenBudget *int `json:"monthlyTokenBudget,omitempty"`
+	// Content-policy overrides for this team, layered on top of the platform
+	// baseline (the prompt-length and sensitive-data guardrails that apply to
+	// every request regardless of team). This only adds to or tightens the
+	// baseline, never weakens it.
+	Policy TeamPolicy `json:"policy"`
 }
 
 // TeamConnection is a single page of teams
@@ -90,6 +187,33 @@ type TeamConnection struct {
 	TotalCount int `json:"totalCount"`
 	// Whether a further page follows this one
 	HasNextPage bool `json:"hasNextPage"`
+}
+
+// TeamPolicy is a team's content-policy overrides, on top of the platform
+// baseline.
+type TeamPolicy struct {
+	// Additional case-insensitive substrings denied for this team, on top of
+	// the platform baseline. Empty by default.
+	BlockedPatterns []string `json:"blockedPatterns"`
+	// If true, a request whose content looks like it contains a secret (an
+	// API key or credit card number) is denied outright instead of the
+	// platform default of redacting it and continuing.
+	DenyOnSensitiveData bool `json:"denyOnSensitiveData"`
+}
+
+// TeamUsage is one team's UsageSummary, e.g. a row of the platform-wide
+// usage-by-team breakdown.
+type TeamUsage struct {
+	TeamID string `json:"teamId"`
+	// Display name of the team, resolved server-side since globalUsageByTeam
+	// is the only view of teams other than the caller's own - there is no
+	// "list all teams" query for the client to resolve names against.
+	Name             string  `json:"name"`
+	RequestCount     int     `json:"requestCount"`
+	PromptTokens     int     `json:"promptTokens"`
+	CompletionTokens int     `json:"completionTokens"`
+	TotalTokens      int     `json:"totalTokens"`
+	CostUsd          float64 `json:"costUsd"`
 }
 
 // UsageSummary aggregates usage_event rows over a time window.
@@ -105,6 +229,64 @@ type UsageSummary struct {
 	// Estimated cost in USD across all counted calls. Pricing is illustrative/
 	// approximate, not a live-synced price list.
 	CostUsd float64 `json:"costUsd"`
+}
+
+// RequestLogStatus is whether a logged LLM proxy call ultimately succeeded or
+// failed, at any stage: validation, allowlist, quota, policy, or provider
+// dispatch.
+type RequestLogStatus string
+
+const (
+	RequestLogStatusSuccess RequestLogStatus = "SUCCESS"
+	RequestLogStatusError   RequestLogStatus = "ERROR"
+)
+
+var AllRequestLogStatus = []RequestLogStatus{
+	RequestLogStatusSuccess,
+	RequestLogStatusError,
+}
+
+func (e RequestLogStatus) IsValid() bool {
+	switch e {
+	case RequestLogStatusSuccess, RequestLogStatusError:
+		return true
+	}
+	return false
+}
+
+func (e RequestLogStatus) String() string {
+	return string(e)
+}
+
+func (e *RequestLogStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RequestLogStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RequestLogStatus", str)
+	}
+	return nil
+}
+
+func (e RequestLogStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RequestLogStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RequestLogStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 // Role governs what an account is permitted to manage. It is global on the

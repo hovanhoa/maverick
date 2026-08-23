@@ -148,13 +148,13 @@ func TestStreamChatCompletion_ForwardsChunksInOrder(t *testing.T) {
 	t.Parallel()
 
 	sse := "event: message_start\n" +
-		`data: {"type":"message_start","message":{"id":"msg_abc","model":"claude-3-5-sonnet-20241022"}}` + "\n\n" +
+		`data: {"type":"message_start","message":{"id":"msg_abc","model":"claude-3-5-sonnet-20241022","usage":{"input_tokens":12,"output_tokens":0}}}` + "\n\n" +
 		"event: content_block_delta\n" +
 		`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hel"}}` + "\n\n" +
 		"event: content_block_delta\n" +
 		`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"lo"}}` + "\n\n" +
 		"event: message_delta\n" +
-		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}` + "\n\n" +
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}` + "\n\n" +
 		"event: message_stop\n" +
 		`data: {"type":"message_stop"}` + "\n\n"
 
@@ -169,6 +169,7 @@ func TestStreamChatCompletion_ForwardsChunksInOrder(t *testing.T) {
 
 	var texts []string
 	var sawFinish bool
+	var finalUsage *openai.Usage
 	for ev := range events {
 		require.NoError(t, ev.Err)
 		require.NotNil(t, ev.Chunk)
@@ -180,10 +181,17 @@ func TestStreamChatCompletion_ForwardsChunksInOrder(t *testing.T) {
 			sawFinish = true
 			assert.Equal(t, openai.FinishReasonStop, *ev.Chunk.Choices[0].FinishReason)
 		}
+		if ev.Usage != nil {
+			finalUsage = ev.Usage
+		}
 	}
 
 	assert.Equal(t, []string{"Hel", "lo"}, texts)
 	assert.True(t, sawFinish)
+	require.NotNil(t, finalUsage, "the message_delta event must carry final token usage")
+	assert.Equal(t, 12, finalUsage.PromptTokens)
+	assert.Equal(t, 2, finalUsage.CompletionTokens)
+	assert.Equal(t, 14, finalUsage.TotalTokens)
 }
 
 func TestStreamChatCompletion_NonOKStatusReturnsError(t *testing.T) {

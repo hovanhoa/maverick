@@ -11,6 +11,8 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -61,7 +63,7 @@ func (h *Handler) resolve(modelField string) (provider.Provider, string, string,
 	providerName, modelName, ok := strings.Cut(modelField, "/")
 	if !ok || providerName == "" || modelName == "" {
 		return nil, "", "", provider.NewError("", provider.ErrorKindInvalidRequest,
-			`model must be formatted as "provider/model", e.g. "anthropic/claude-3-5-sonnet-20241022"`, nil)
+			`model must be formatted as "provider/model", e.g. "anthropic/claude-sonnet-5"`, nil)
 	}
 
 	p, ok := h.deps.Providers.Get(providerName)
@@ -132,6 +134,27 @@ func (h *Handler) prepare(ctx context.Context, requestID string, principal *Prin
 		}
 	}
 
+	// A team's policy overrides run ahead of the platform baseline chain
+	// below, on the original unredacted content - if this ran after the
+	// baseline, a team's stricter "deny on sensitive data" would never
+	// fire, since the baseline's SensitiveDataRedaction would have already
+	// scrubbed the match out of the text by then.
+	if team != nil {
+		teamOverrides := policy.TeamOverrides{
+			BlockedPatterns:     team.Policy.BlockedPatterns,
+			DenyOnSensitiveData: team.Policy.DenyOnSensitiveData,
+		}
+		if teamOverrides.HasOverrides() {
+			working, decision := policy.TeamChain(teamOverrides).Evaluate(&upstream)
+			h.logPolicyDecision(ctx, requestID, decision)
+			if decision.Action == policy.ActionDeny {
+				h.releaseQuota(ctx, team, quotaWindow, estimate)
+				return nil, provider.NewError(providerName, provider.ErrorKindPolicy, decision.Message, nil)
+			}
+			upstream = *working
+		}
+	}
+
 	if h.deps.Policy != nil {
 		redacted, decision := h.deps.Policy.Evaluate(&upstream)
 		h.logPolicyDecision(ctx, requestID, decision)
@@ -168,8 +191,12 @@ func (h *Handler) logPolicyDecision(ctx context.Context, requestID string, decis
 // logCompletion emits the one structured log line Phase 5 calls for per
 // proxy call: request id, account, team, provider, model, latency, and
 // status. call may be nil if prepare() itself failed (e.g. invalid model
-// format), in which case provider/model are simply omitted.
-func (h *Handler) logCompletion(ctx context.Context, requestID string, principal *Principal, call *preparedCall, start time.Time, err error) {
+// format), in which case provider/model are simply omitted. It also
+// persists the durable request_log audit row for this call - req is
+// always available; resp is non-nil only for a successful non-streaming
+// call (a streamed call's response is never reconstructed, see
+// StreamChatCompletion's doc comment).
+func (h *Handler) logCompletion(ctx context.Context, requestID string, principal *Principal, call *preparedCall, start time.Time, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, err error) {
 	fields := []log.Field{
 		log.String("request_id", requestID),
 		log.String("account_id", principal.ID),
@@ -185,9 +212,69 @@ func (h *Handler) logCompletion(ctx context.Context, requestID string, principal
 	if err != nil {
 		fields = append(fields, log.String("status", "error"), log.Error(err))
 		log.FromContext(ctx).Error("chat_completion", fields...)
+	} else {
+		log.FromContext(ctx).Info("chat_completion", append(fields, log.String("status", "success"))...)
+	}
+
+	h.recordRequestLog(ctx, requestID, principal, call, start, req, resp, err)
+}
+
+// recordRequestLog builds and persists the request_log audit row for one
+// proxy call attempt. Persistence failures are logged and swallowed, never
+// surfaced to the caller - the same non-blocking posture recordUsage
+// already takes for usage_event.
+func (h *Handler) recordRequestLog(ctx context.Context, requestID string, principal *Principal, call *preparedCall, start time.Time, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, err error) {
+	requestBody, marshalErr := json.Marshal(req)
+	if marshalErr != nil {
+		log.FromContext(ctx).Error("failed to marshal request for request_log", log.Error(marshalErr), log.String("request_id", requestID))
 		return
 	}
-	log.FromContext(ctx).Info("chat_completion", append(fields, log.String("status", "success"))...)
+
+	entry := &model.RequestLog{
+		RequestID:      requestID,
+		AccountID:      principal.ID,
+		RequestedModel: req.Model,
+		Status:         model.RequestLogStatusSuccess,
+		Stream:         req.Stream,
+		RequestBody:    string(requestBody),
+		LatencyMs:      int(time.Since(start).Milliseconds()),
+	}
+	if principal.OrgID != "" {
+		teamID := principal.OrgID
+		entry.TeamID = &teamID
+	}
+	if call != nil {
+		entry.Provider = &call.providerName
+		entry.Model = &call.modelName
+	}
+
+	if err != nil {
+		entry.Status = model.RequestLogStatusError
+		msg := err.Error()
+		entry.ErrorMessage = &msg
+		var perr *provider.Error
+		if errors.As(err, &perr) {
+			kind := string(perr.Kind)
+			entry.ErrorKind = &kind
+		}
+	} else if resp != nil {
+		if body, marshalErr := json.Marshal(resp); marshalErr == nil {
+			respBody := string(body)
+			entry.ResponseBody = &respBody
+		}
+		promptTokens, completionTokens, totalTokens := resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens
+		entry.PromptTokens = &promptTokens
+		entry.CompletionTokens = &completionTokens
+		entry.TotalTokens = &totalTokens
+		if call != nil {
+			cost := usage.CalculateCost(call.providerName, call.modelName, promptTokens, completionTokens)
+			entry.CostUsd = &cost
+		}
+	}
+
+	if err := h.deps.Database.InsertRequestLog(ctx, entry); err != nil {
+		log.FromContext(ctx).Error("failed to record request log", log.Error(err), log.String("request_id", requestID))
+	}
 }
 
 // releaseQuota undoes a reservation for a call that never reached (or
@@ -200,10 +287,13 @@ func (h *Handler) releaseQuota(ctx context.Context, team *model.Team, window str
 }
 
 // recordUsage reconciles the quota reservation to actual usage and persists
-// a durable usage_event row.
-func (h *Handler) recordUsage(ctx context.Context, requestID string, principal *Principal, call *preparedCall, resp *openai.ChatCompletionResponse) {
+// a durable usage_event row. usage is the real, provider-reported token
+// count for the completed call - for a non-streaming call this always
+// comes from the response body; for a streaming call, only from adapters
+// that can reliably report it over the stream (see StreamChatCompletion).
+func (h *Handler) recordUsage(ctx context.Context, requestID string, principal *Principal, call *preparedCall, usg openai.Usage) {
 	if h.deps.Quota != nil && call.team != nil {
-		_ = h.deps.Quota.Reconcile(ctx, call.quotaWindow, call.team.MonthlyTokenBudget, call.estimate, resp.Usage.TotalTokens)
+		_ = h.deps.Quota.Reconcile(ctx, call.quotaWindow, call.team.MonthlyTokenBudget, call.estimate, usg.TotalTokens)
 	}
 
 	var teamID *string
@@ -217,10 +307,10 @@ func (h *Handler) recordUsage(ctx context.Context, requestID string, principal *
 		TeamID:           teamID,
 		Provider:         call.providerName,
 		Model:            call.modelName,
-		PromptTokens:     resp.Usage.PromptTokens,
-		CompletionTokens: resp.Usage.CompletionTokens,
-		TotalTokens:      resp.Usage.TotalTokens,
-		CostUSD:          usage.CalculateCost(call.providerName, call.modelName, resp.Usage.PromptTokens, resp.Usage.CompletionTokens),
+		PromptTokens:     usg.PromptTokens,
+		CompletionTokens: usg.CompletionTokens,
+		TotalTokens:      usg.TotalTokens,
+		CostUSD:          usage.CalculateCost(call.providerName, call.modelName, usg.PromptTokens, usg.CompletionTokens),
 	}
 	if err := h.deps.Database.RecordUsageEvent(ctx, event); err != nil {
 		log.FromContext(ctx).Error("failed to record usage event", log.Error(err), log.String("request_id", requestID))
@@ -233,7 +323,7 @@ func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principa
 
 	call, err := h.prepare(ctx, requestID, principal, req)
 	if err != nil {
-		h.logCompletion(ctx, requestID, principal, nil, start, err)
+		h.logCompletion(ctx, requestID, principal, nil, start, req, nil, err)
 		return nil, err
 	}
 
@@ -242,12 +332,12 @@ func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principa
 	})
 	if err != nil {
 		h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
-		h.logCompletion(ctx, requestID, principal, call, start, err)
+		h.logCompletion(ctx, requestID, principal, call, start, req, nil, err)
 		return nil, err
 	}
 
-	h.recordUsage(ctx, requestID, principal, call, resp)
-	h.logCompletion(ctx, requestID, principal, call, start, nil)
+	h.recordUsage(ctx, requestID, principal, call, resp.Usage)
+	h.logCompletion(ctx, requestID, principal, call, start, req, resp, nil)
 	return resp, nil
 }
 
@@ -255,24 +345,26 @@ func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principa
 // calls are not retried - a client already receiving chunks can't safely
 // have the request silently restarted underneath it.
 //
-// Known limitation: none of the three live adapters reliably surface a
-// final token-usage figure over the stream, so a successful stream simply
-// keeps its upfront estimate reserved (no usage_event is recorded for
-// streaming calls yet) rather than reconciling to a real number. A failed
-// stream still fully releases its reservation.
+// Known limitation: not every adapter reliably surfaces a final token-usage
+// figure over the stream (Anthropic does, via its message_delta event -
+// OpenAI and Gemini streaming usage reporting isn't wired up yet). When the
+// adapter doesn't report usage, a successful stream simply keeps its
+// upfront estimate reserved (no usage_event is recorded) rather than
+// reconciling to a real number. A failed stream still fully releases its
+// reservation regardless of provider.
 func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, principal *Principal, req *openai.ChatCompletionRequest) (<-chan provider.StreamEvent, error) {
 	start := time.Now()
 
 	call, err := h.prepare(ctx, requestID, principal, req)
 	if err != nil {
-		h.logCompletion(ctx, requestID, principal, nil, start, err)
+		h.logCompletion(ctx, requestID, principal, nil, start, req, nil, err)
 		return nil, err
 	}
 
 	upstream, err := call.provider.StreamChatCompletion(ctx, call.upstream)
 	if err != nil {
 		h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
-		h.logCompletion(ctx, requestID, principal, call, start, err)
+		h.logCompletion(ctx, requestID, principal, call, start, req, nil, err)
 		return nil, err
 	}
 
@@ -281,10 +373,14 @@ func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, pr
 		defer close(events)
 
 		var streamErr error
+		var finalUsage *openai.Usage
 		for ev := range upstream {
 			if ev.Err != nil {
 				streamErr = ev.Err
 				h.releaseQuota(ctx, call.team, call.quotaWindow, call.estimate)
+			}
+			if ev.Usage != nil {
+				finalUsage = ev.Usage
 			}
 			events <- ev
 		}
@@ -292,9 +388,13 @@ func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, pr
 		status := "success"
 		if streamErr != nil {
 			status = "error"
+		} else if finalUsage != nil {
+			h.recordUsage(ctx, requestID, principal, call, *finalUsage)
 		}
 		streamDurationSeconds.WithLabelValues(call.providerName, status).Observe(time.Since(start).Seconds())
-		h.logCompletion(ctx, requestID, principal, call, start, streamErr)
+		// resp is always nil here: a streamed call's response is never
+		// reconstructed into a single body (see this function's doc comment).
+		h.logCompletion(ctx, requestID, principal, call, start, req, nil, streamErr)
 	}()
 
 	return events, nil

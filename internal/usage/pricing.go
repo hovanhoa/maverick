@@ -15,19 +15,35 @@ type modelPricing struct {
 // pricing is keyed by provider name, then by the bare model name (no
 // "provider/" prefix). Unrecognized provider/model pairs simply cost $0
 // rather than erroring - see CalculateCost.
+//
+// Snapshot as of 2026-08-22, from each provider's public pricing page.
+// Provider model lineups and prices change often (an end-to-end proxy test
+// this same day found claude-3-5-haiku-20241022 - what this table had
+// before - already retired); this table needs a manual refresh whenever a
+// provider ships new models, since nothing here is live-synced (see the
+// package doc and the Phase 6 roadmap item on this).
 var pricing = map[string]map[string]modelPricing{
 	"anthropic": {
-		"claude-3-5-sonnet-20241022": {InputPer1M: 3.00, OutputPer1M: 15.00},
-		"claude-3-5-haiku-20241022":  {InputPer1M: 0.80, OutputPer1M: 4.00},
-		"claude-3-opus-20240229":     {InputPer1M: 15.00, OutputPer1M: 75.00},
+		"claude-opus-5":              {InputPer1M: 5.00, OutputPer1M: 25.00},
+		"claude-opus-4-8":            {InputPer1M: 5.00, OutputPer1M: 25.00},
+		"claude-opus-4-7":            {InputPer1M: 5.00, OutputPer1M: 25.00},
+		"claude-opus-4-6":            {InputPer1M: 5.00, OutputPer1M: 25.00},
+		"claude-opus-4-5-20251101":   {InputPer1M: 5.00, OutputPer1M: 25.00},
+		"claude-sonnet-5":            {InputPer1M: 2.00, OutputPer1M: 10.00},
+		"claude-sonnet-4-6":          {InputPer1M: 3.00, OutputPer1M: 15.00},
+		"claude-sonnet-4-5-20250929": {InputPer1M: 3.00, OutputPer1M: 15.00},
+		"claude-haiku-4-5-20251001":  {InputPer1M: 1.00, OutputPer1M: 5.00},
 	},
 	"openai": {
+		"gpt-5":       {InputPer1M: 1.25, OutputPer1M: 10.00},
+		"gpt-5-mini":  {InputPer1M: 0.25, OutputPer1M: 2.00},
 		"gpt-4o":      {InputPer1M: 2.50, OutputPer1M: 10.00},
 		"gpt-4o-mini": {InputPer1M: 0.15, OutputPer1M: 0.60},
 	},
 	"gemini": {
-		"gemini-1.5-pro":   {InputPer1M: 1.25, OutputPer1M: 5.00},
-		"gemini-1.5-flash": {InputPer1M: 0.075, OutputPer1M: 0.30},
+		"gemini-2.5-pro":        {InputPer1M: 1.25, OutputPer1M: 10.00},
+		"gemini-2.5-flash":      {InputPer1M: 0.30, OutputPer1M: 2.50},
+		"gemini-2.5-flash-lite": {InputPer1M: 0.10, OutputPer1M: 0.40},
 	},
 }
 

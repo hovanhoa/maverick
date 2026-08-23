@@ -9,3 +9,4 @@ vite.config.d.ts
 # Design reference asset only, not used by the app.
 public/avatar-dryfolio.png
 public/logo-reference-m.jpg
+public/eagle-reference.svg

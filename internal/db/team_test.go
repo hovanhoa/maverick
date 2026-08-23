@@ -154,15 +154,15 @@ func TestAccountWithTeamJSONB(t *testing.T) {
 	assert.Equal(t, team.ID, *fetched.TeamID)
 
 	clear := true
-	updated, err := database.UpdateAccount(ctx, account.ID, nil, nil, nil, &clear, nil)
+	updated, err := database.UpdateAccount(ctx, account.ID, nil, nil, nil, nil, &clear, nil)
 	require.NoError(t, err)
 	require.Nil(t, updated.TeamID)
 
-	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, &tid, nil, nil)
+	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, nil, &tid, nil, nil)
 	require.NoError(t, err)
 
 	both := true
-	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, &tid, &both, nil)
+	_, err = database.UpdateAccount(ctx, account.ID, nil, nil, nil, &tid, &both, nil)
 	require.Error(t, err)
 
 	_, _ = database.DeleteAccount(ctx, account.ID)
@@ -201,6 +201,46 @@ func TestUpdateTeamModelAllowlist_NotFound(t *testing.T) {
 	database := testdb.NewTestDatabase(ctx, t)
 
 	_, err := database.UpdateTeamModelAllowlist(ctx, "team_missing", []string{"anthropic:*"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "team not found")
+}
+
+func TestUpdateTeamPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Policy team"})
+	require.NoError(t, err)
+	assert.Empty(t, team.Policy.BlockedPatterns, "new teams start with no policy overrides configured")
+	assert.False(t, team.Policy.DenyOnSensitiveData)
+
+	updated, err := database.UpdateTeamPolicy(ctx, team.ID, []string{"company-secret-project"}, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"company-secret-project"}, updated.Policy.BlockedPatterns)
+	assert.True(t, updated.Policy.DenyOnSensitiveData)
+
+	fetched, err := database.GetTeamByID(ctx, team.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched)
+	assert.Equal(t, []string{"company-secret-project"}, fetched.Policy.BlockedPatterns)
+	assert.True(t, fetched.Policy.DenyOnSensitiveData)
+
+	// Replacing wholesale with empty/false clears the overrides.
+	cleared, err := database.UpdateTeamPolicy(ctx, team.ID, []string{}, false)
+	require.NoError(t, err)
+	assert.Empty(t, cleared.Policy.BlockedPatterns)
+	assert.False(t, cleared.Policy.DenyOnSensitiveData)
+}
+
+func TestUpdateTeamPolicy_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	_, err := database.UpdateTeamPolicy(ctx, "team_missing", []string{"x"}, true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "team not found")
 }

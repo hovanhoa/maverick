@@ -234,11 +234,20 @@ type sseEnvelope struct {
 	Message struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
+		// Usage.InputTokens is the full prompt token count, known upfront
+		// on message_start. Usage.OutputTokens is 0 here (generation
+		// hasn't happened yet) - the real output count comes later, on
+		// message_delta.
+		Usage usage `json:"usage"`
 	} `json:"message"`
 	Delta struct {
 		Text       string `json:"text"`
 		StopReason string `json:"stop_reason"`
 	} `json:"delta"`
+	// Usage is only populated on message_delta events, and only carries
+	// OutputTokens (the final completion token count) - see
+	// https://docs.claude.com/en/docs/build-with-claude/streaming.
+	Usage usage `json:"usage"`
 	Error struct {
 		Message string `json:"message"`
 	} `json:"error"`
@@ -283,6 +292,7 @@ func (a *Adapter) pumpStream(ctx context.Context, body io.ReadCloser, requestedM
 
 	id := ""
 	model := requestedModel
+	inputTokens := 0
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -306,6 +316,7 @@ func (a *Adapter) pumpStream(ctx context.Context, body io.ReadCloser, requestedM
 				if env.Message.Model != "" {
 					model = env.Message.Model
 				}
+				inputTokens = env.Message.Usage.InputTokens
 			case "content_block_delta":
 				chunk := &openai.ChatCompletionChunk{
 					ID: id, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: model,
@@ -323,7 +334,12 @@ func (a *Adapter) pumpStream(ctx context.Context, body io.ReadCloser, requestedM
 					ID: id, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: model,
 					Choices: []openai.ChunkChoice{{Index: 0, Delta: openai.Delta{}, FinishReason: &finish}},
 				}
-				if !send(provider.StreamEvent{Chunk: chunk}) {
+				usage := &openai.Usage{
+					PromptTokens:     inputTokens,
+					CompletionTokens: env.Usage.OutputTokens,
+					TotalTokens:      inputTokens + env.Usage.OutputTokens,
+				}
+				if !send(provider.StreamEvent{Chunk: chunk, Usage: usage}) {
 					return
 				}
 			case "error":

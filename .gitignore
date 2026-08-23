@@ -39,5 +39,8 @@ Thumbs.db
 # Air (live-reload) tmp dir, if used later
 tmp/
 
+# Vite dep pre-bundling cache
+.vite/
+
 # Local Docker volume mounts, if any are added later
 deployment/data/

@@ -42,6 +42,17 @@ func testResolver(t *testing.T) (*Resolver, context.Context) {
 	return &Resolver{deps: Dependencies{Database: database}}, ctx
 }
 
+// createTestAccount wraps mutationResolver.CreateAccount for tests that only
+// care about the resulting Account, not the one-time password now returned
+// alongside it.
+func createTestAccount(mr *mutationResolver, ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.Account, error) {
+	secret, err := mr.CreateAccount(ctx, email, username, teamID, role)
+	if err != nil {
+		return nil, err
+	}
+	return &secret.Account, nil
+}
+
 // TestAccountResolver_CRUD exercises CreateAccount, Account, UpdateAccount, and DeleteAccount.
 func TestAccountResolver_CRUD(t *testing.T) {
 	t.Parallel()
@@ -50,7 +61,7 @@ func TestAccountResolver_CRUD(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	created, err := mr.CreateAccount(ctx, "api-crud@example.com", "apicrud", nil, nil)
+	created, err := createTestAccount(mr, ctx, "api-crud@example.com", "apicrud", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, created)
 	require.NotEmpty(t, created.ID)
@@ -65,7 +76,7 @@ func TestAccountResolver_CRUD(t *testing.T) {
 	assert.Equal(t, created.Email, fetched.Email)
 
 	newEmail := "api-updated@example.com"
-	updated, err := mr.UpdateAccount(ctx, created.ID, &newEmail, nil, nil, nil, nil)
+	updated, err := mr.UpdateAccount(ctx, created.ID, &newEmail, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, newEmail, updated.Email)
@@ -87,7 +98,7 @@ func TestAccountResolver_CreateAccount_GeneratesID(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	created, err := mr.CreateAccount(ctx, "api-auto@example.com", "apiauto", nil, nil)
+	created, err := createTestAccount(mr, ctx, "api-auto@example.com", "apiauto", nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.ID)
 	assert.True(t, strings.HasPrefix(created.ID, "account_"))
@@ -117,10 +128,10 @@ func TestAccountResolver_Account_DeniedForNonMember(t *testing.T) {
 
 	team, err := mr.CreateTeam(ctx, "account-read-team")
 	require.NoError(t, err)
-	target, err := mr.CreateAccount(ctx, "target-read@example.com", "targetread", &team.ID, nil)
+	target, err := createTestAccount(mr, ctx, "target-read@example.com", "targetread", &team.ID, nil)
 	require.NoError(t, err)
 
-	outsider, err := mr.CreateAccount(ctx, "outsider-read@example.com", "outsiderread", nil, nil)
+	outsider, err := createTestAccount(mr, ctx, "outsider-read@example.com", "outsiderread", nil, nil)
 	require.NoError(t, err)
 	outsiderCtx := asPrincipal(ctx, outsider.ID, model.RoleOwner, "team_someone_elses")
 
@@ -141,10 +152,10 @@ func TestAccountResolver_Account_ReadableByTeammate(t *testing.T) {
 
 	team, err := mr.CreateTeam(ctx, "account-read-teammate-team")
 	require.NoError(t, err)
-	target, err := mr.CreateAccount(ctx, "target-teammate@example.com", "targetteammate", &team.ID, nil)
+	target, err := createTestAccount(mr, ctx, "target-teammate@example.com", "targetteammate", &team.ID, nil)
 	require.NoError(t, err)
 
-	teammate, err := mr.CreateAccount(ctx, "teammate-reader@example.com", "teammatereader", &team.ID, nil)
+	teammate, err := createTestAccount(mr, ctx, "teammate-reader@example.com", "teammatereader", &team.ID, nil)
 	require.NoError(t, err)
 	teammateCtx := asPrincipal(ctx, teammate.ID, model.RoleMember, team.ID)
 
@@ -173,9 +184,9 @@ func TestAccountResolver_UpdateAccount_ValidationError(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	_, err := mr.UpdateAccount(ctx, "any_id", nil, nil, nil, nil, nil)
+	_, err := mr.UpdateAccount(ctx, "any_id", nil, nil, nil, nil, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one of email, username, teamId, clearTeamId, or role")
+	assert.Contains(t, err.Error(), "at least one of email, username, name, teamId, clearTeamId, or role")
 }
 
 // TestResolver_createAccount_getAccount_updateAccount_deleteAccount covers the thin helpers on *Resolver.
@@ -184,9 +195,10 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 
 	r, ctx := testResolver(t)
 
-	acc, err := r.createAccount(ctx, "helper@example.com", "helperuser", nil, nil)
+	secret, err := r.createAccount(ctx, "helper@example.com", "helperuser", nil, nil)
 	require.NoError(t, err)
-	require.NotNil(t, acc)
+	require.NotNil(t, secret)
+	acc := &secret.Account
 
 	got, err := r.getAccount(ctx, acc.ID)
 	require.NoError(t, err)
@@ -194,7 +206,7 @@ func TestResolver_createAccount_getAccount_updateAccount_deleteAccount(t *testin
 	assert.Equal(t, acc.ID, got.ID)
 
 	email := "helper2@example.com"
-	upd, err := r.updateAccount(ctx, acc.ID, &email, nil, nil, nil, nil)
+	upd, err := r.updateAccount(ctx, acc.ID, &email, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, upd)
 	assert.Equal(t, email, upd.Email)
@@ -223,7 +235,7 @@ func TestAccountResolver_Accounts_UnaffiliatedCallerSeesSelf(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	self, err := mr.CreateAccount(ctx, "unaffiliated-self@example.com", "unaffiliatedself", nil, nil)
+	self, err := createTestAccount(mr, ctx, "unaffiliated-self@example.com", "unaffiliatedself", nil, nil)
 	require.NoError(t, err)
 	selfCtx := asPrincipal(ctx, self.ID, model.RoleOwner, "")
 
@@ -251,9 +263,9 @@ func TestAccountResolver_Accounts(t *testing.T) {
 	team, err := mr.CreateTeam(ctx, "resolver-accounts-team")
 	require.NoError(t, err)
 
-	_, err = mr.CreateAccount(ctx, "solo@example.com", "solo", nil, nil)
+	_, err = createTestAccount(mr, ctx, "solo@example.com", "solo", nil, nil)
 	require.NoError(t, err)
-	_, err = mr.CreateAccount(ctx, "member@example.com", "member", &team.ID, nil)
+	_, err = createTestAccount(mr, ctx, "member@example.com", "member", &team.ID, nil)
 	require.NoError(t, err)
 
 	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
@@ -287,7 +299,7 @@ func TestAccountResolver_Accounts_Pagination(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, name := range []string{"one", "two", "three"} {
-		_, err := mr.CreateAccount(ctx, name+"@example.com", name, &team.ID, nil)
+		_, err := createTestAccount(mr, ctx, name+"@example.com", name, &team.ID, nil)
 		require.NoError(t, err)
 	}
 
@@ -318,7 +330,7 @@ func TestAccountResolver_Accounts_ClampsLimit(t *testing.T) {
 
 	team, err := mr.CreateTeam(ctx, "resolver-accounts-clamp-team")
 	require.NoError(t, err)
-	_, err = mr.CreateAccount(ctx, "only@example.com", "only", &team.ID, nil)
+	_, err = createTestAccount(mr, ctx, "only@example.com", "only", &team.ID, nil)
 	require.NoError(t, err)
 
 	teamCtx := asPrincipal(ctx, "account_test_caller", model.RoleOwner, team.ID)
@@ -352,12 +364,12 @@ func TestAccountResolver_UpdateAccount_Self_CanEditOwnEmail(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	self, err := mr.CreateAccount(ctx, "self-editor@example.com", "selfeditor", nil, nil)
+	self, err := createTestAccount(mr, ctx, "self-editor@example.com", "selfeditor", nil, nil)
 	require.NoError(t, err)
 	selfCtx := asPrincipal(ctx, self.ID, model.RoleMember, "")
 
 	newEmail := "self-editor-new@example.com"
-	updated, err := mr.UpdateAccount(selfCtx, self.ID, &newEmail, nil, nil, nil, nil)
+	updated, err := mr.UpdateAccount(selfCtx, self.ID, &newEmail, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, newEmail, updated.Email)
 }
@@ -374,15 +386,15 @@ func TestAccountResolver_UpdateAccount_DeniedForUnrelatedMember(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "target-email-only@example.com", "targetemailonly", nil, nil)
+	target, err := createTestAccount(mr, ctx, "target-email-only@example.com", "targetemailonly", nil, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "unrelated-caller@example.com", "unrelatedcaller", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "unrelated-caller@example.com", "unrelatedcaller", nil, nil)
 	require.NoError(t, err)
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	newEmail := "hijacked@example.com"
-	_, err = mr.UpdateAccount(memberCtx, target.ID, &newEmail, nil, nil, nil, nil)
+	_, err = mr.UpdateAccount(memberCtx, target.ID, &newEmail, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 
@@ -405,11 +417,11 @@ func TestAccountResolver_UpdateAccount_Self_CannotJoinAnotherTeam(t *testing.T) 
 	team, err := mr.CreateTeam(ctx, "self-join-team")
 	require.NoError(t, err)
 
-	self, err := mr.CreateAccount(ctx, "self-joiner@example.com", "selfjoiner", nil, nil)
+	self, err := createTestAccount(mr, ctx, "self-joiner@example.com", "selfjoiner", nil, nil)
 	require.NoError(t, err)
 	selfCtx := asPrincipal(ctx, self.ID, model.RoleMember, "")
 
-	_, err = mr.UpdateAccount(selfCtx, self.ID, nil, nil, &team.ID, nil, nil)
+	_, err = mr.UpdateAccount(selfCtx, self.ID, nil, nil, nil, &team.ID, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 }
@@ -422,16 +434,16 @@ func TestAccountResolver_UpdateAccount_RoleChange_DeniedForMember(t *testing.T) 
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "target@example.com", "target", nil, nil)
+	target, err := createTestAccount(mr, ctx, "target@example.com", "target", nil, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "caller@example.com", "caller", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "caller@example.com", "caller", nil, nil)
 	require.NoError(t, err)
 
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	admin := model.RoleAdmin
-	_, err = mr.UpdateAccount(memberCtx, target.ID, nil, nil, nil, nil, &admin)
+	_, err = mr.UpdateAccount(memberCtx, target.ID, nil, nil, nil, nil, nil, &admin)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 
@@ -449,16 +461,16 @@ func TestAccountResolver_UpdateAccount_RoleChange_AllowedForAdmin(t *testing.T) 
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "target2@example.com", "target2", nil, nil)
+	target, err := createTestAccount(mr, ctx, "target2@example.com", "target2", nil, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "caller2@example.com", "caller2", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "caller2@example.com", "caller2", nil, nil)
 	require.NoError(t, err)
 
 	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, "")
 
 	admin := model.RoleAdmin
-	updated, err := mr.UpdateAccount(adminCtx, target.ID, nil, nil, nil, nil, &admin)
+	updated, err := mr.UpdateAccount(adminCtx, target.ID, nil, nil, nil, nil, nil, &admin)
 	require.NoError(t, err)
 	assert.Equal(t, model.RoleAdmin, updated.Role)
 }
@@ -477,15 +489,15 @@ func TestAccountResolver_UpdateAccount_RoleChange_DeniedForAdminOfAnotherTeam(t 
 	teamB, err := mr.CreateTeam(ctx, "role-change-team-b")
 	require.NoError(t, err)
 
-	target, err := mr.CreateAccount(ctx, "target-in-b@example.com", "targetinb", &teamB.ID, nil)
+	target, err := createTestAccount(mr, ctx, "target-in-b@example.com", "targetinb", &teamB.ID, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "admin-of-a-for-role@example.com", "adminofaforrole", &teamA.ID, nil)
+	caller, err := createTestAccount(mr, ctx, "admin-of-a-for-role@example.com", "adminofaforrole", &teamA.ID, nil)
 	require.NoError(t, err)
 	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
 
 	admin := model.RoleAdmin
-	_, err = mr.UpdateAccount(adminOfACtx, target.ID, nil, nil, nil, nil, &admin)
+	_, err = mr.UpdateAccount(adminOfACtx, target.ID, nil, nil, nil, nil, nil, &admin)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 }
@@ -498,10 +510,10 @@ func TestAccountResolver_DeleteAccount_DeniedForMember(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "todelete@example.com", "todelete", nil, nil)
+	target, err := createTestAccount(mr, ctx, "todelete@example.com", "todelete", nil, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "deleter@example.com", "deleter", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "deleter@example.com", "deleter", nil, nil)
 	require.NoError(t, err)
 
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
@@ -529,10 +541,10 @@ func TestAccountResolver_DeleteAccount_DeniedForAdminOfAnotherTeam(t *testing.T)
 	teamB, err := mr.CreateTeam(ctx, "delete-team-b")
 	require.NoError(t, err)
 
-	target, err := mr.CreateAccount(ctx, "target-to-delete-in-b@example.com", "targettodeleteinb", &teamB.ID, nil)
+	target, err := createTestAccount(mr, ctx, "target-to-delete-in-b@example.com", "targettodeleteinb", &teamB.ID, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "admin-of-a-for-delete@example.com", "adminofafordelete", &teamA.ID, nil)
+	caller, err := createTestAccount(mr, ctx, "admin-of-a-for-delete@example.com", "adminofafordelete", &teamA.ID, nil)
 	require.NoError(t, err)
 	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
 
@@ -554,13 +566,13 @@ func TestAccountResolver_CreateAccount_ElevatedRole_DeniedForMember(t *testing.T
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	caller, err := mr.CreateAccount(ctx, "creator@example.com", "creator", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "creator@example.com", "creator", nil, nil)
 	require.NoError(t, err)
 
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
 	admin := model.RoleAdmin
-	_, err = mr.CreateAccount(memberCtx, "elevated@example.com", "elevated", nil, &admin)
+	_, err = createTestAccount(mr, memberCtx, "elevated@example.com", "elevated", nil, &admin)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 }
@@ -574,7 +586,7 @@ func TestAccountResolver_Me(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	caller, err := mr.CreateAccount(ctx, "whoami@example.com", "whoami", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "whoami@example.com", "whoami", nil, nil)
 	require.NoError(t, err)
 
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
@@ -596,4 +608,109 @@ func TestAccountResolver_Me_NoPrincipal(t *testing.T) {
 	_, err := qr.Me(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authentication required")
+}
+
+// TestAccountResolver_CreateAccount_GeneratesWorkingPassword asserts that
+// creating an account also mints a password for it, and that this password
+// actually authenticates the new account, not just some opaque string.
+func TestAccountResolver_CreateAccount_GeneratesWorkingPassword(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	secret, err := mr.CreateAccount(ctx, "haspassword@example.com", "haspassworduser", nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, secret.Password)
+
+	found, err := r.deps.Database.VerifyAccountPassword(ctx, "haspassworduser", secret.Password)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, secret.Account.ID, found.ID)
+}
+
+// TestAccountResolver_ResetAccountPassword_DeniedForMember asserts the same
+// business rule as deleteAccount: only OWNER/ADMIN callers may reset
+// someone else's password - a MEMBER cannot reset even their own via this
+// path (there's no self-service password recovery, by design).
+func TestAccountResolver_ResetAccountPassword_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	target, err := createTestAccount(mr, ctx, "resettarget@example.com", "resettarget", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, target.ID, model.RoleMember, "")
+
+	_, err = mr.ResetAccountPassword(memberCtx, target.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+// TestAccountResolver_ResetAccountPassword_DeniedForAdminOfAnotherTeam
+// mirrors the delete/update RBAC rule: an ADMIN of one team cannot reset the
+// password of an account belonging to a different team.
+func TestAccountResolver_ResetAccountPassword_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "reset-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "reset-team-b")
+	require.NoError(t, err)
+
+	target, err := createTestAccount(mr, ctx, "target-in-b-for-reset@example.com", "targetinbforreset", &teamB.ID, nil)
+	require.NoError(t, err)
+
+	caller, err := createTestAccount(mr, ctx, "admin-of-a-for-reset@example.com", "adminofaforreset", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	_, err = mr.ResetAccountPassword(adminOfACtx, target.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+// TestAccountResolver_ResetAccountPassword_InvalidatesOldPassword asserts
+// that a successful reset by an OWNER produces a new working password and
+// the old one, from account creation, stops working.
+func TestAccountResolver_ResetAccountPassword_InvalidatesOldPassword(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	created, err := mr.CreateAccount(ctx, "reset-me@example.com", "resetme", nil, nil)
+	require.NoError(t, err)
+	oldPassword := created.Password
+
+	reset, err := mr.ResetAccountPassword(ctx, created.Account.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, reset.Password)
+	assert.NotEqual(t, oldPassword, reset.Password)
+
+	stale, err := r.deps.Database.VerifyAccountPassword(ctx, "resetme", oldPassword)
+	require.NoError(t, err)
+	assert.Nil(t, stale, "the pre-reset password must stop working")
+
+	fresh, err := r.deps.Database.VerifyAccountPassword(ctx, "resetme", reset.Password)
+	require.NoError(t, err)
+	require.NotNil(t, fresh)
+}
+
+// TestAccountResolver_ResetAccountPassword_NotFound errors for an id that
+// doesn't exist, rather than silently minting a password nobody can use.
+func TestAccountResolver_ResetAccountPassword_NotFound(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	_, err := mr.ResetAccountPassword(ctx, "account_does_not_exist")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
 }

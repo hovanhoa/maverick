@@ -33,6 +33,43 @@ func TestChatCompletionRequest_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, req, decoded)
 }
 
+func TestMessage_UnmarshalJSON_ArrayContent(t *testing.T) {
+	t.Parallel()
+
+	var m openai.Message
+	err := json.Unmarshal([]byte(`{"role":"user","content":[{"type":"text","text":"Hello"},{"type":"text","text":"world"}]}`), &m)
+	require.NoError(t, err)
+	assert.Equal(t, openai.RoleUser, m.Role)
+	assert.Equal(t, "Hello\nworld", m.Content)
+}
+
+func TestMessage_UnmarshalJSON_ArrayContent_SkipsNonTextParts(t *testing.T) {
+	t.Parallel()
+
+	var m openai.Message
+	err := json.Unmarshal([]byte(`{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/x.png"}},{"type":"text","text":"describe this"}]}`), &m)
+	require.NoError(t, err)
+	assert.Equal(t, "describe this", m.Content)
+}
+
+func TestMessage_UnmarshalJSON_InvalidContentShape(t *testing.T) {
+	t.Parallel()
+
+	var m openai.Message
+	err := json.Unmarshal([]byte(`{"role":"user","content":42}`), &m)
+	assert.Error(t, err)
+}
+
+func TestChatCompletionRequest_JSONUnmarshal_ArrayContentInMessages(t *testing.T) {
+	t.Parallel()
+
+	var req openai.ChatCompletionRequest
+	err := json.Unmarshal([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`), &req)
+	require.NoError(t, err)
+	require.Len(t, req.Messages, 1)
+	assert.Equal(t, "hi", req.Messages[0].Content)
+}
+
 func TestChatCompletionResponse_JSONShape(t *testing.T) {
 	t.Parallel()
 

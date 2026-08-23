@@ -7,7 +7,7 @@ import (
 	"github.com/hovanhoa/llmgateway/pkg/core/errors"
 )
 
-func (r *Resolver) createAccount(ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.Account, error) {
+func (r *Resolver) createAccount(ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.AccountSecret, error) {
 	resolvedRole := model.RoleMember
 	if role != nil {
 		resolvedRole = *role
@@ -32,7 +32,44 @@ func (r *Resolver) createAccount(ctx context.Context, email string, username str
 		TeamID:   teamID,
 		Role:     resolvedRole,
 	}
-	return r.deps.Database.CreateAccount(ctx, account)
+	created, err := r.deps.Database.CreateAccount(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	password, err := r.deps.Database.SetRandomAccountPassword(ctx, created.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.AccountSecret{Account: *created, Password: password}, nil
+}
+
+// resetAccountPassword generates a fresh random password for an existing
+// account, gated the same way deleteAccount is: the caller must be
+// OWNER/ADMIN of the target's team (or a platform-wide OWNER/ADMIN for an
+// unaffiliated account). There is no self-service path here - a forgotten
+// password can only be reset by someone else, same as it can't be recovered
+// by the account holder themselves.
+func (r *Resolver) resetAccountPassword(ctx context.Context, id string) (*model.AccountSecret, error) {
+	if err := requireOwnerOrAdminOfAccountsTeam(ctx, r, id); err != nil {
+		return nil, err
+	}
+
+	account, err := r.deps.Database.GetAccountByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, errors.New("account not found")
+	}
+
+	password, err := r.deps.Database.SetRandomAccountPassword(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.AccountSecret{Account: *account, Password: password}, nil
 }
 
 // listAccounts is team-scoped: an explicit teamId still requires membership
@@ -124,8 +161,8 @@ func (r *Resolver) getMe(ctx context.Context) (*model.Account, error) {
 	return account, nil
 }
 
-func (r *Resolver) updateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
-	// A caller may always edit their own email/username (self-service),
+func (r *Resolver) updateAccount(ctx context.Context, id string, email *string, username *string, name *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
+	// A caller may always edit their own email/username/name (self-service),
 	// but changing role or team membership - for self or anyone else - is
 	// a privileged action scoped to the target account's *current* team:
 	// an OWNER/ADMIN may only do this for members of their own team.
@@ -141,7 +178,7 @@ func (r *Resolver) updateAccount(ctx context.Context, id string, email *string, 
 		}
 	}
 
-	return r.deps.Database.UpdateAccount(ctx, id, email, username, teamID, clearTeamID, role)
+	return r.deps.Database.UpdateAccount(ctx, id, email, username, name, teamID, clearTeamID, role)
 }
 
 func (r *Resolver) deleteAccount(ctx context.Context, id string) (bool, error) {

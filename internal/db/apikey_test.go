@@ -29,12 +29,18 @@ func TestCreateAPIKey_HashLookupRevoke(t *testing.T) {
 	assert.NotEmpty(t, secret.Key)
 	assert.True(t, strings.HasPrefix(secret.Key, secret.APIKey.Prefix))
 	assert.Nil(t, secret.APIKey.RevokedAt)
+	assert.Nil(t, secret.APIKey.LastUsedAt, "a freshly issued key has never been used")
 
-	// A valid, non-revoked key resolves back to its account by hash.
+	// A valid, non-revoked key resolves back to its account by hash, and
+	// that lookup records the key as just having been used.
 	found, err := database.GetAccountByAPIKeyHash(ctx, db.HashAPIKey(secret.Key))
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, account.ID, found.ID)
+
+	touched, err := database.GetAPIKeyByID(ctx, secret.APIKey.ID)
+	require.NoError(t, err)
+	require.NotNil(t, touched.LastUsedAt, "lookup by hash must stamp last_used_at")
 
 	// An invalid key (never issued) resolves to nothing.
 	none, err := database.GetAccountByAPIKeyHash(ctx, db.HashAPIKey("not-a-real-key"))

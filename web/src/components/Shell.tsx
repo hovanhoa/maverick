@@ -1,14 +1,18 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import * as React from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { UserCircleIcon, ArrowRightStartOnRectangleIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../lib/auth';
+import { avatarUrl } from '../lib/api';
 import { Logo } from './Logo';
-import { ThemeToggle } from './ThemeToggle';
 
 const NAV = [
   { name: 'Accounts', to: '/accounts' },
   { name: 'Teams', to: '/teams' },
-  { name: 'API Keys', to: '/api-keys' }
+  { name: 'API Keys', to: '/api-keys' },
+  { name: 'Playground', to: '/playground' },
+  { name: 'Usage', to: '/usage' },
+  { name: 'Request Logs', to: '/request-logs' }
 ];
 
 function maskKey(key: string): string {
@@ -16,8 +20,27 @@ function maskKey(key: string): string {
   return `${prefix}_••••••••`;
 }
 
+/** The signed-in user's picture in the sidebar, falling back to the generic icon if none is set. */
+function SidebarAvatar({ accountId, nonce }: { accountId: string; nonce: number }) {
+  const [broken, setBroken] = React.useState(false);
+  React.useEffect(() => setBroken(false), [nonce]);
+
+  if (broken) {
+    return <UserCircleIcon className="h-8 w-8 shrink-0 text-neutral-400" />;
+  }
+  return (
+    <img
+      src={`${avatarUrl(accountId)}?v=${nonce}`}
+      alt=""
+      className="h-8 w-8 shrink-0 rounded-full bg-neutral-200 object-cover dark:bg-white/10"
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 export function Shell() {
-  const { apiKey, account, signOut } = useAuth();
+  const { apiKey, account, signOut, avatarNonce } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <div className="min-h-full bg-white lg:bg-neutral-100 dark:bg-neutral-950 dark:lg:bg-black">
@@ -49,17 +72,26 @@ export function Shell() {
 
           <div className="mt-auto space-y-3 border-t border-neutral-950/5 pt-4 dark:border-white/10">
             {apiKey && (
-              <div className="flex items-center gap-2 px-2.5">
-                <UserCircleIcon className="h-8 w-8 shrink-0 text-neutral-400" />
+              <button
+                type="button"
+                title="Edit your profile"
+                onClick={() => navigate('/accounts', { state: { editSelf: true } })}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left transition hover:bg-neutral-950/5 dark:hover:bg-white/5"
+              >
+                {account ? (
+                  <SidebarAvatar accountId={account.id} nonce={avatarNonce} />
+                ) : (
+                  <UserCircleIcon className="h-8 w-8 shrink-0 text-neutral-400" />
+                )}
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-neutral-900 dark:text-white">
-                    {account?.email ?? maskKey(apiKey)}
+                    {account?.name || account?.email || maskKey(apiKey)}
                   </p>
                   {account && <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{account.role}</p>}
                 </div>
-              </div>
+              </button>
             )}
-            <div className="flex items-center justify-between px-2.5">
+            <div className="flex items-center px-2.5">
               <button
                 onClick={signOut}
                 className="flex items-center gap-1.5 text-sm font-medium text-neutral-500 transition hover:text-red-600 dark:text-neutral-400 dark:hover:text-red-400"
@@ -67,7 +99,6 @@ export function Shell() {
                 <ArrowRightStartOnRectangleIcon className="h-4 w-4" />
                 Sign out
               </button>
-              <ThemeToggle />
             </div>
           </div>
         </nav>
@@ -77,7 +108,6 @@ export function Shell() {
         <div className="flex items-center justify-between">
           <Logo />
           <div className="flex items-center gap-2">
-            <ThemeToggle />
             <button onClick={signOut} className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
               Sign out
             </button>

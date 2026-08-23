@@ -256,6 +256,159 @@ func TestStreamChatCompletion_ForwardsProviderChannel(t *testing.T) {
 	assert.Equal(t, "claude-3-5-sonnet", fake.lastModel)
 }
 
+func TestChatCompletion_TeamPolicyDeniesOnSensitiveDataWhereBaselineWouldOnlyRedact(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{
+		Name:   "Strict Team",
+		Policy: model.TeamPolicy{DenyOnSensitiveData: true},
+	})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	// The baseline chain alone would only redact-and-continue; the team's
+	// stricter override must deny before the call ever reaches this,
+	// proving the team pre-chain runs ahead of the baseline on the
+	// original, unredacted content.
+	baseline := policy.NewChain(policy.SensitiveDataRedaction{})
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, nil, baseline)
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount, OrgID: team.ID}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Messages[0].Content = "my key is llmgw_abcdefghijklmnop, please help"
+
+	_, err = h.ChatCompletion(ctx, "req_test", principal, req)
+	require.Error(t, err)
+
+	status, body := proxy.ErrorResponseFor(err)
+	assert.Equal(t, 403, status)
+	assert.Equal(t, openai.ErrorTypePermission, body.Error.Type)
+	assert.Equal(t, 0, fake.calls, "a team-policy-denied call must never reach the provider")
+}
+
+func TestChatCompletion_TeamPolicyDeniesOnExtraBlockedPattern(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{
+		Name:   "Custom Blocklist Team",
+		Policy: model.TeamPolicy{BlockedPatterns: []string{"company-secret-project"}},
+	})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount, OrgID: team.ID}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Messages[0].Content = "tell me about company-secret-project"
+
+	_, err = h.ChatCompletion(ctx, "req_test", principal, req)
+	require.Error(t, err)
+
+	status, _ := proxy.ErrorResponseFor(err)
+	assert.Equal(t, 403, status)
+	assert.Equal(t, 0, fake.calls, "the baseline chain has no such pattern - only the team override must catch this")
+}
+
+func TestChatCompletion_NoTeamPolicyOverrides_BehavesLikeBaseline(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Unconfigured Policy Team"})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	baseline := policy.NewChain(policy.SensitiveDataRedaction{})
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, nil, baseline)
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount, OrgID: team.ID}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Messages[0].Content = "my key is llmgw_abcdefghijklmnop, please help"
+
+	_, err = h.ChatCompletion(ctx, "req_test", principal, req)
+	require.NoError(t, err, "a team with no policy overrides configured must fall through to the baseline chain unchanged")
+	assert.Equal(t, 1, fake.calls)
+}
+
+func TestStreamChatCompletion_RecordsUsageEventWhenProviderReportsIt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Metered Stream"})
+	require.NoError(t, err)
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "streammetered@example.com", Username: "streammetered"})
+	require.NoError(t, err)
+
+	finish := openai.FinishReasonStop
+	usg := openai.Usage{PromptTokens: 12, CompletionTokens: 2, TotalTokens: 14}
+	ch := make(chan provider.StreamEvent, 2)
+	ch <- provider.StreamEvent{Chunk: &openai.ChatCompletionChunk{ID: "c1"}}
+	ch <- provider.StreamEvent{
+		Chunk: &openai.ChatCompletionChunk{ID: "c1", Choices: []openai.ChunkChoice{{FinishReason: &finish}}},
+		Usage: &usg,
+	}
+	close(ch)
+
+	fake := &fakeProvider{name: "anthropic", streamChan: ch}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Stream = true
+
+	events, err := h.StreamChatCompletion(ctx, "req_test", principal, req)
+	require.NoError(t, err)
+	for range events {
+	}
+
+	summary, err := database.SumTeamUsage(ctx, team.ID, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.RequestCount, "a stream whose final event carries Usage must record a usage_event")
+	assert.Equal(t, 14, summary.TotalTokens)
+}
+
+func TestStreamChatCompletion_NoUsageEventWhenProviderNeverReportsUsage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Unmetered Stream"})
+	require.NoError(t, err)
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "streamunmetered@example.com", Username: "streamunmetered"})
+	require.NoError(t, err)
+
+	ch := make(chan provider.StreamEvent, 1)
+	ch <- provider.StreamEvent{Chunk: &openai.ChatCompletionChunk{ID: "c1"}}
+	close(ch)
+
+	fake := &fakeProvider{name: "anthropic", streamChan: ch}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Stream = true
+
+	events, err := h.StreamChatCompletion(ctx, "req_test", principal, req)
+	require.NoError(t, err)
+	for range events {
+	}
+
+	summary, err := database.SumTeamUsage(ctx, team.ID, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 0, summary.RequestCount, "no usage_event should be recorded when no event ever carries Usage")
+}
+
 func intPtr(n int) *int { return &n }
 
 func TestChatCompletion_QuotaExceededBlocksCallAndNeverReachesProvider(t *testing.T) {
@@ -547,3 +700,161 @@ func TestErrorResponseFor_UnknownErrorMapsToInternal(t *testing.T) {
 type assertError struct{}
 
 func (assertError) Error() string { return "boom" }
+
+// latestRequestLog returns the most recently inserted request_log row for
+// accountID - ListRequestLogs already orders most-recently-created first,
+// so the row under test is always index 0.
+func latestRequestLog(t *testing.T, ctx context.Context, database *db.Database, accountID string) model.RequestLog {
+	t.Helper()
+	logs, _, err := database.ListRequestLogs(ctx, db.RequestLogFilter{AccountID: &accountID}, 1, 0)
+	require.NoError(t, err)
+	require.Len(t, logs, 1, "expected exactly one request_log row for this account")
+	return logs[0]
+}
+
+func TestChatCompletion_InvalidModelFormat_RecordsRequestLog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+	h := newHandler(database, provider.Registry{})
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "reqlog-invalid@example.com", Username: "reqloginvalid"})
+	require.NoError(t, err)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("claude-3-5-sonnet"))
+	require.Error(t, err)
+
+	entry := latestRequestLog(t, ctx, database, principal.ID)
+	assert.Equal(t, model.RequestLogStatusError, entry.Status)
+	assert.Nil(t, entry.Provider, "a call that never resolved a provider must leave provider/model null")
+	require.NotNil(t, entry.ErrorKind)
+	assert.Equal(t, "invalid_request", *entry.ErrorKind)
+	assert.Equal(t, "claude-3-5-sonnet", entry.RequestedModel)
+	assert.Nil(t, entry.ResponseBody)
+}
+
+func TestChatCompletion_BlockedByTeamAllowlist_RecordsRequestLog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Restricted RequestLog"})
+	require.NoError(t, err)
+	_, err = database.UpdateTeamModelAllowlist(ctx, team.ID, []string{"openai:*"})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "reqlog-allowlist@example.com", Username: "reqlogallowlist", TeamID: &team.ID})
+	require.NoError(t, err)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+
+	entry := latestRequestLog(t, ctx, database, principal.ID)
+	assert.Equal(t, model.RequestLogStatusError, entry.Status)
+	require.NotNil(t, entry.TeamID)
+	assert.Equal(t, team.ID, *entry.TeamID)
+	require.NotNil(t, entry.ErrorMessage)
+	assert.Contains(t, *entry.ErrorMessage, "not on this team's allowlist",
+		"provider/model columns stay null for an allowlist block, but the resolved name must still be recoverable from the error message")
+}
+
+func TestChatCompletion_QuotaExceededBlocksCallAndNeverReachesProvider_RecordsRequestLog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Tiny Budget RequestLog", MonthlyTokenBudget: intPtr(1)})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "reqlog-quota@example.com", Username: "reqlogquota", TeamID: &team.ID})
+	require.NoError(t, err)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+
+	entry := latestRequestLog(t, ctx, database, principal.ID)
+	assert.Equal(t, model.RequestLogStatusError, entry.Status)
+	require.NotNil(t, entry.ErrorMessage)
+	assert.Contains(t, *entry.ErrorMessage, "monthly token budget exceeded")
+}
+
+func TestChatCompletion_PolicyDenyBlocksCallAndReleasesQuotaReservation_RecordsRequestLogWithOriginalContent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Policed RequestLog", MonthlyTokenBudget: intPtr(100_000)})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	chain := policy.NewChain(policy.BlockedPatterns{Patterns: []string{"forbidden"}})
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, chain)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "reqlog-policy@example.com", Username: "reqlogpolicy", TeamID: &team.ID})
+	require.NoError(t, err)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Messages[0].Content = "this is a forbidden request"
+
+	_, err = h.ChatCompletion(ctx, "req_test", principal, req)
+	require.Error(t, err)
+
+	entry := latestRequestLog(t, ctx, database, principal.ID)
+	assert.Equal(t, model.RequestLogStatusError, entry.Status)
+	assert.Contains(t, entry.RequestBody, "this is a forbidden request",
+		"the persisted request must be the original, pre-redaction content, not whatever (if anything) the policy chain would have sent upstream")
+}
+
+func TestStreamChatCompletion_RecordsRequestLogWithNilResponseBody(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	finish := openai.FinishReasonStop
+	usg := openai.Usage{PromptTokens: 12, CompletionTokens: 2, TotalTokens: 14}
+	ch := make(chan provider.StreamEvent, 2)
+	ch <- provider.StreamEvent{Chunk: &openai.ChatCompletionChunk{ID: "c1"}}
+	ch <- provider.StreamEvent{
+		Chunk: &openai.ChatCompletionChunk{ID: "c1", Choices: []openai.ChunkChoice{{FinishReason: &finish}}},
+		Usage: &usg,
+	}
+	close(ch)
+
+	fake := &fakeProvider{name: "anthropic", streamChan: ch}
+	h := newHandler(database, provider.Registry{"anthropic": fake})
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "reqlog-stream@example.com", Username: "reqlogstream"})
+	require.NoError(t, err)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount}
+	req := chatRequest("anthropic/claude-3-5-sonnet")
+	req.Stream = true
+
+	events, err := h.StreamChatCompletion(ctx, "req_test", principal, req)
+	require.NoError(t, err)
+	for range events {
+	}
+
+	entry := latestRequestLog(t, ctx, database, principal.ID)
+	assert.Equal(t, model.RequestLogStatusSuccess, entry.Status)
+	assert.True(t, entry.Stream)
+	assert.Nil(t, entry.ResponseBody, "a streamed call's response is never reconstructed into request_log")
+	assert.NotEmpty(t, entry.RequestBody)
+}

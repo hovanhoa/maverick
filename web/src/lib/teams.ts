@@ -1,6 +1,6 @@
 import { gql, type Team, type UsageSummary } from './api';
 
-const TEAM_FIELDS = `id name createdAt updatedAt modelAllowlist monthlyTokenBudget`;
+const TEAM_FIELDS = `id name createdAt updatedAt modelAllowlist monthlyTokenBudget policy { blockedPatterns denyOnSensitiveData }`;
 
 export async function listTeams(): Promise<Team[]> {
   const data = await gql<{ teams: { items: Team[] } }>(`query { teams(limit: 100) { items { ${TEAM_FIELDS} } } }`);
@@ -55,10 +55,21 @@ export async function updateTeamQuota(teamId: string, budget: number | null): Pr
   return data.updateTeamQuota;
 }
 
-export async function getTeamUsage(teamId: string): Promise<UsageSummary> {
+/** Replaces a team's content-policy overrides wholesale. */
+export async function updateTeamPolicy(teamId: string, blockedPatterns: string[], denyOnSensitiveData: boolean): Promise<Team> {
+  const data = await gql<{ updateTeamPolicy: Team }>(
+    `mutation($teamId: ID!, $blockedPatterns: [String!]!, $denyOnSensitiveData: Boolean!) {
+      updateTeamPolicy(teamId: $teamId, blockedPatterns: $blockedPatterns, denyOnSensitiveData: $denyOnSensitiveData) { ${TEAM_FIELDS} }
+    }`,
+    { teamId, blockedPatterns, denyOnSensitiveData }
+  );
+  return data.updateTeamPolicy;
+}
+
+export async function getTeamUsage(teamId: string, since?: string): Promise<UsageSummary> {
   const data = await gql<{ teamUsage: UsageSummary }>(
-    `query($teamId: ID!) { teamUsage(teamId: $teamId) { requestCount promptTokens completionTokens totalTokens costUsd } }`,
-    { teamId }
+    `query($teamId: ID!, $since: Time) { teamUsage(teamId: $teamId, since: $since) { requestCount promptTokens completionTokens totalTokens costUsd } }`,
+    { teamId, since }
   );
   return data.teamUsage;
 }

@@ -291,6 +291,56 @@ func (ec *executionContext) fieldContext_Team_monthlyTokenBudget(_ context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Team_policy(ctx context.Context, field graphql.CollectedField, obj *model.Team) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Team_policy(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Policy, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(model.TeamPolicy)
+	fc.Result = res
+	return ec.marshalNTeamPolicy2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐTeamPolicy(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Team_policy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Team",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "blockedPatterns":
+				return ec.fieldContext_TeamPolicy_blockedPatterns(ctx, field)
+			case "denyOnSensitiveData":
+				return ec.fieldContext_TeamPolicy_denyOnSensitiveData(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type TeamPolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _TeamConnection_items(ctx context.Context, field graphql.CollectedField, obj *model.TeamConnection) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_TeamConnection_items(ctx, field)
 	if err != nil {
@@ -342,6 +392,8 @@ func (ec *executionContext) fieldContext_TeamConnection_items(_ context.Context,
 				return ec.fieldContext_Team_modelAllowlist(ctx, field)
 			case "monthlyTokenBudget":
 				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
 		},
@@ -437,6 +489,94 @@ func (ec *executionContext) fieldContext_TeamConnection_hasNextPage(_ context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _TeamPolicy_blockedPatterns(ctx context.Context, field graphql.CollectedField, obj *model.TeamPolicy) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TeamPolicy_blockedPatterns(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.BlockedPatterns, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TeamPolicy_blockedPatterns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TeamPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TeamPolicy_denyOnSensitiveData(ctx context.Context, field graphql.CollectedField, obj *model.TeamPolicy) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TeamPolicy_denyOnSensitiveData(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DenyOnSensitiveData, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TeamPolicy_denyOnSensitiveData(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TeamPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 // endregion **************************** field.gotpl *****************************
 
 // region    **************************** input.gotpl *****************************
@@ -487,6 +627,11 @@ func (ec *executionContext) _Team(ctx context.Context, sel ast.SelectionSet, obj
 			}
 		case "monthlyTokenBudget":
 			out.Values[i] = ec._Team_monthlyTokenBudget(ctx, field, obj)
+		case "policy":
+			out.Values[i] = ec._Team_policy(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -533,6 +678,50 @@ func (ec *executionContext) _TeamConnection(ctx context.Context, sel ast.Selecti
 			}
 		case "hasNextPage":
 			out.Values[i] = ec._TeamConnection_hasNextPage(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var teamPolicyImplementors = []string{"TeamPolicy"}
+
+func (ec *executionContext) _TeamPolicy(ctx context.Context, sel ast.SelectionSet, obj *model.TeamPolicy) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, teamPolicyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TeamPolicy")
+		case "blockedPatterns":
+			out.Values[i] = ec._TeamPolicy_blockedPatterns(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "denyOnSensitiveData":
+			out.Values[i] = ec._TeamPolicy_denyOnSensitiveData(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -633,6 +822,10 @@ func (ec *executionContext) marshalNTeamConnection2ᚖgithubᚗcomᚋhovanhoaᚋ
 		return graphql.Null
 	}
 	return ec._TeamConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNTeamPolicy2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐTeamPolicy(ctx context.Context, sel ast.SelectionSet, v model.TeamPolicy) graphql.Marshaler {
+	return ec._TeamPolicy(ctx, sel, &v)
 }
 
 func (ec *executionContext) marshalOTeam2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐTeam(ctx context.Context, sel ast.SelectionSet, v *model.Team) graphql.Marshaler {

@@ -53,14 +53,14 @@ func TestAccountCRUD(t *testing.T) {
 	assert.Equal(t, account.ID, byIDs[0].ID)
 
 	newEmail := "updated@example.com"
-	updated, err := database.UpdateAccount(ctx, account.ID, &newEmail, nil, nil, nil, nil)
+	updated, err := database.UpdateAccount(ctx, account.ID, &newEmail, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, newEmail, updated.Email)
 	assert.Equal(t, account.Username, updated.Username)
 
 	newUsername := "updateduser"
-	updated2, err := database.UpdateAccount(ctx, account.ID, nil, &newUsername, nil, nil, nil)
+	updated2, err := database.UpdateAccount(ctx, account.ID, nil, &newUsername, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updated2)
 	assert.Equal(t, newEmail, updated2.Email)
@@ -147,9 +147,9 @@ func TestUpdateAccount_ValidationError(t *testing.T) {
 	ctx := context.Background()
 	database := testdb.NewTestDatabase(ctx, t)
 
-	_, err := database.UpdateAccount(ctx, "any_id", nil, nil, nil, nil, nil)
+	_, err := database.UpdateAccount(ctx, "any_id", nil, nil, nil, nil, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one of email, username, teamId, clearTeamId, or role")
+	assert.Contains(t, err.Error(), "at least one of email, username, name, teamId, clearTeamId, or role")
 }
 
 // TestUpdateAccount_NotFound when the id does not exist.
@@ -160,7 +160,7 @@ func TestUpdateAccount_NotFound(t *testing.T) {
 	database := testdb.NewTestDatabase(ctx, t)
 
 	email := "ghost@example.com"
-	_, err := database.UpdateAccount(ctx, "account_missing", &email, nil, nil, nil, nil)
+	_, err := database.UpdateAccount(ctx, "account_missing", &email, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "account not found")
 }

@@ -17,7 +17,7 @@ func TestCalculateCost_KnownModel(t *testing.T) {
 func TestCalculateCost_ZeroTokens(t *testing.T) {
 	t.Parallel()
 
-	cost := usage.CalculateCost("anthropic", "claude-3-5-sonnet-20241022", 0, 0)
+	cost := usage.CalculateCost("anthropic", "claude-sonnet-5", 0, 0)
 	assert.Zero(t, cost)
 }
 
@@ -38,9 +38,9 @@ func TestCalculateCost_UnknownModelIsZero(t *testing.T) {
 func TestCalculateCost_InputAndOutputPricedSeparately(t *testing.T) {
 	t.Parallel()
 
-	inputOnly := usage.CalculateCost("gemini", "gemini-1.5-flash", 1_000_000, 0)
-	outputOnly := usage.CalculateCost("gemini", "gemini-1.5-flash", 0, 1_000_000)
-	assert.InDelta(t, 0.075, inputOnly, 0.0001)
-	assert.InDelta(t, 0.30, outputOnly, 0.0001)
+	inputOnly := usage.CalculateCost("gemini", "gemini-2.5-flash", 1_000_000, 0)
+	outputOnly := usage.CalculateCost("gemini", "gemini-2.5-flash", 0, 1_000_000)
+	assert.InDelta(t, 0.30, inputOnly, 0.0001)
+	assert.InDelta(t, 2.50, outputOnly, 0.0001)
 	assert.NotEqual(t, inputOnly, outputOnly)
 }

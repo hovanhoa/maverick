@@ -83,6 +83,57 @@ func TestSensitiveDataRedaction_LeavesCleanContentAlone(t *testing.T) {
 	assert.Same(t, original, out, "unmodified requests should be returned as-is, not copied")
 }
 
+func TestSensitiveDataRedaction_DenyMode_DeniesInsteadOfRedacting(t *testing.T) {
+	t.Parallel()
+
+	rule := policy.SensitiveDataRedaction{Deny: true}
+	out, d := rule.Evaluate(req("my key is llmgw_abcdefghijklmnop, please help"))
+	assert.Equal(t, policy.ActionDeny, d.Action)
+	assert.Equal(t, "sensitive_data_denied", d.ReasonCode)
+	assert.Nil(t, out)
+}
+
+func TestSensitiveDataRedaction_DenyMode_AllowsCleanContent(t *testing.T) {
+	t.Parallel()
+
+	rule := policy.SensitiveDataRedaction{Deny: true}
+	_, d := rule.Evaluate(req("nothing sensitive here"))
+	assert.Equal(t, policy.ActionAllow, d.Action)
+}
+
+func TestTeamOverrides_HasOverrides(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, policy.TeamOverrides{}.HasOverrides())
+	assert.True(t, policy.TeamOverrides{BlockedPatterns: []string{"x"}}.HasOverrides())
+	assert.True(t, policy.TeamOverrides{DenyOnSensitiveData: true}.HasOverrides())
+}
+
+func TestTeamChain_DeniesOnExtraBlockedPattern(t *testing.T) {
+	t.Parallel()
+
+	chain := policy.TeamChain(policy.TeamOverrides{BlockedPatterns: []string{"company-secret-project"}})
+	_, d := chain.Evaluate(req("tell me about company-secret-project"))
+	assert.Equal(t, policy.ActionDeny, d.Action)
+}
+
+func TestTeamChain_DeniesOnSensitiveDataWhenOptedIn(t *testing.T) {
+	t.Parallel()
+
+	chain := policy.TeamChain(policy.TeamOverrides{DenyOnSensitiveData: true})
+	_, d := chain.Evaluate(req("my key is llmgw_abcdefghijklmnop"))
+	assert.Equal(t, policy.ActionDeny, d.Action)
+}
+
+func TestTeamChain_EmptyOverridesAllowsEverything(t *testing.T) {
+	t.Parallel()
+
+	chain := policy.TeamChain(policy.TeamOverrides{})
+	out, d := chain.Evaluate(req("my key is llmgw_abcdefghijklmnop"))
+	assert.Equal(t, policy.ActionAllow, d.Action)
+	assert.NotNil(t, out)
+}
+
 func TestChain_AllowWhenNoRuleObjects(t *testing.T) {
 	t.Parallel()
 

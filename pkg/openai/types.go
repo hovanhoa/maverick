@@ -4,6 +4,12 @@
 // package should ever need to speak a provider-specific wire format.
 package openai
 
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
 // Role identifies who authored a chat message.
 type Role string
 
@@ -17,6 +23,57 @@ const (
 type Message struct {
 	Role    Role   `json:"role"`
 	Content string `json:"content"`
+}
+
+// contentPart is one element of the OpenAI "array of content parts" form of
+// a message's content (e.g. `[{"type":"text","text":"..."}]`). Only the
+// "text" part type is honored - image/audio parts are silently dropped,
+// since this gateway does not support multimodal input; a text-only client
+// still gets a sensible (if incomplete) prompt rather than a hard failure.
+type contentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// UnmarshalJSON accepts content as either a plain string - the common case,
+// and the only form this type's own MarshalJSON ever produces - or an
+// OpenAI-style array of content parts. Some OpenAI-compatible clients
+// (Continue, Cursor, and other agentic IDEs) send the array form even for
+// pure-text messages, e.g. once a conversation has tool output or code
+// context attached to a turn.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Role    Role            `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	m.Role = raw.Role
+
+	if len(raw.Content) == 0 {
+		return nil
+	}
+
+	var asString string
+	if err := json.Unmarshal(raw.Content, &asString); err == nil {
+		m.Content = asString
+		return nil
+	}
+
+	var parts []contentPart
+	if err := json.Unmarshal(raw.Content, &parts); err != nil {
+		return fmt.Errorf("message content must be a string or an array of content parts: %w", err)
+	}
+
+	texts := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p.Type == "text" || p.Type == "" {
+			texts = append(texts, p.Text)
+		}
+	}
+	m.Content = strings.Join(texts, "\n")
+	return nil
 }
 
 // ChatCompletionRequest is the canonical, OpenAI-compatible request body

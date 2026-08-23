@@ -39,6 +39,12 @@ type Account {
     username: String!
 
     """
+    Display name for the account, distinct from its login username. Unset
+    until the account holder sets one.
+    """
+    name: String
+
+    """
     Team this account belongs to, if any
     """
     teamId: ID
@@ -57,6 +63,23 @@ type Account {
     Timestamp the account was last updated
     """
     updatedAt: Time!
+}
+
+"""
+AccountSecret is returned only once, when an account's password is set (at
+creation) or reset. The plaintext password cannot be retrieved again after
+this - if lost, it must be reset.
+"""
+type AccountSecret {
+    """
+    The account this password belongs to
+    """
+    account: Account!
+
+    """
+    The plaintext password. Store it now - it will not be shown again.
+    """
+    password: String!
 }
 
 """
@@ -99,19 +122,29 @@ extend type Query {
 
 extend type Mutation {
     """
-    Create a new account. role defaults to MEMBER.
+    Create a new account. role defaults to MEMBER. A random password is
+    generated for the account and returned once, for signing in at
+    /login - it cannot be retrieved again after this.
     """
-    createAccount(email: String!, username: String!, teamId: ID, role: Role): Account!
+    createAccount(email: String!, username: String!, teamId: ID, role: Role): AccountSecret!
 
     """
-    Update an existing account. Provide at least one of email, username, teamId,
-    clearTeamId, or role. Changing role requires the caller to be an OWNER or ADMIN.
+    Update an existing account. Provide at least one of email, username, name,
+    teamId, clearTeamId, or role. Changing role requires the caller to be an
+    OWNER or ADMIN.
     """
-    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean, role: Role): Account!
+    updateAccount(id: ID!, email: String, username: String, name: String, teamId: ID, clearTeamId: Boolean, role: Role): Account!
 
     """
     Delete an account by ID. Requires the caller to be an OWNER or ADMIN.
     Returns true if a row was removed.
     """
     deleteAccount(id: ID!): Boolean!
+
+    """
+    Generates a new random password for an account, invalidating whatever it
+    had before, and returns it once - it cannot be retrieved again after
+    this. Requires the caller to be an OWNER or ADMIN of the account's team.
+    """
+    resetAccountPassword(id: ID!): AccountSecret!
 }

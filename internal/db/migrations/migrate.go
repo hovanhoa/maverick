@@ -165,6 +165,26 @@ func GetMigrations() []MigrationEntry {
 			Name:      "Add usage_event table",
 			Migration: NewSQLFileMigration("00002_usage_event_table"),
 		},
+		{
+			Index:     3,
+			Name:      "Add request_log table",
+			Migration: NewSQLFileMigration("00003_request_log_table"),
+		},
+		{
+			Index:     4,
+			Name:      "Add api_key last_used_at column",
+			Migration: NewSQLFileMigration("00004_api_key_last_used"),
+		},
+		{
+			Index:     5,
+			Name:      "Add account password_hash column",
+			Migration: NewSQLFileMigration("00005_account_password"),
+		},
+		{
+			Index:     6,
+			Name:      "Add account_avatar table",
+			Migration: NewSQLFileMigration("00006_account_avatar_table"),
+		},
 	}
 }
 

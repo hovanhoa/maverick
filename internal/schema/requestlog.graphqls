@@ -1,0 +1,93 @@
+"""
+RequestLogStatus is whether a logged LLM proxy call ultimately succeeded or
+failed, at any stage: validation, allowlist, quota, policy, or provider
+dispatch.
+"""
+enum RequestLogStatus {
+    SUCCESS
+    ERROR
+}
+
+"""
+RequestLog is one durable record of an attempted LLM proxy call - including
+calls that never reached the provider (bad model format, team allowlist
+block, quota exceeded, policy deny) - with the full raw request and (for
+non-streaming calls) response content. This is the audit-trail counterpart
+to UsageSummary/usage_event, which only records completed successful
+calls.
+"""
+type RequestLog {
+    id: ID!
+    requestId: String!
+    accountId: ID!
+    teamId: ID
+    provider: String
+    model: String
+    """
+    The raw model field as the caller sent it (e.g. "anthropic/claude-x"),
+    captured even when it couldn't be resolved to a real provider/model.
+    """
+    requestedModel: String!
+    status: RequestLogStatus!
+    errorKind: String
+    errorMessage: String
+    stream: Boolean!
+    """
+    The original request body, as raw JSON text, exactly as the caller
+    sent it - before any team or baseline content-policy redaction.
+    """
+    requestBody: String!
+    """
+    The raw response body, as JSON text. Null on error, and null for a
+    streamed call (streamed output is not currently reconstructed).
+    """
+    responseBody: String
+    promptTokens: Int
+    completionTokens: Int
+    totalTokens: Int
+    costUsd: Float
+    latencyMs: Int!
+    createdAt: Time!
+}
+
+"""
+RequestLogConnection is a single page of request logs.
+"""
+type RequestLogConnection {
+    """
+    Request logs contained in this page, most recently created first.
+    """
+    items: [RequestLog!]!
+
+    """
+    Total number of request logs matching the query, ignoring pagination.
+    """
+    totalCount: Int!
+
+    """
+    Whether a further page follows this one.
+    """
+    hasNextPage: Boolean!
+}
+
+extend type Query {
+    """
+    Request log for a team, most recent first. Restricted to an OWNER/ADMIN
+    of that team - unlike teamUsage's aggregate numbers, this exposes every
+    member's full raw prompt/response content, so it needs the stricter
+    tier teamUsageByAccount already uses, not teamUsage's open one.
+    """
+    teamRequestLogs(teamId: ID!, limit: Int, offset: Int): RequestLogConnection!
+
+    """
+    Request log for the currently authenticated account's own proxy calls,
+    most recent first.
+    """
+    myRequestLogs(limit: Int, offset: Int): RequestLogConnection!
+
+    """
+    Platform-wide request log across every team and account, most recent
+    first. OWNER/ADMIN only.
+    """
+    globalRequestLogs(limit: Int, offset: Int): RequestLogConnection!
+}

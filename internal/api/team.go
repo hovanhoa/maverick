@@ -28,7 +28,7 @@ func (r *Resolver) createTeam(ctx context.Context, name string) (*model.Team, er
 		}
 		if caller != nil {
 			ownerRole := model.RoleOwner
-			if _, err := r.deps.Database.UpdateAccount(ctx, principal.ID, nil, nil, &team.ID, nil, &ownerRole); err != nil {
+			if _, err := r.deps.Database.UpdateAccount(ctx, principal.ID, nil, nil, nil, &team.ID, nil, &ownerRole); err != nil {
 				return nil, err
 			}
 		}
@@ -114,4 +114,11 @@ func (r *Resolver) updateTeamQuota(ctx context.Context, teamID string, monthlyTo
 		return nil, err
 	}
 	return r.deps.Database.UpdateTeamQuota(ctx, teamID, monthlyTokenBudget, clearMonthlyTokenBudget)
+}
+
+func (r *Resolver) updateTeamPolicy(ctx context.Context, teamID string, blockedPatterns []string, denyOnSensitiveData bool) (*model.Team, error) {
+	if err := requireTeamRole(ctx, teamID, model.RoleOwner, model.RoleAdmin); err != nil {
+		return nil, err
+	}
+	return r.deps.Database.UpdateTeamPolicy(ctx, teamID, blockedPatterns, denyOnSensitiveData)
 }

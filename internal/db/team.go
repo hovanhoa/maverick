@@ -120,6 +120,48 @@ func (db *Database) UpdateTeamModelAllowlist(ctx context.Context, id string, all
 	return existing, nil
 }
 
+// UpdateTeamPolicy replaces a team's content-policy overrides wholesale.
+func (db *Database) UpdateTeamPolicy(ctx context.Context, id string, blockedPatterns []string, denyOnSensitiveData bool) (*model.Team, error) {
+	existing, err := db.GetTeamByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("team not found")
+	}
+
+	existing.Policy = model.TeamPolicy{
+		BlockedPatterns:     blockedPatterns,
+		DenyOnSensitiveData: denyOnSensitiveData,
+	}
+	existing.UpdatedAt = time.Now().UTC()
+
+	payload, err := json.Marshal(existing)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal team payload")
+	}
+
+	query, args, err := db.GetSQLClient().Builder().
+		Update("team").
+		Set("team", payload).
+		Set("updated_at", existing.UpdatedAt).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "build update team query")
+	}
+
+	tag, err := db.GetSQLClient().Runner().Exec(ctx, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, errors.New("team not found")
+	}
+
+	return existing, nil
+}
+
 // UpdateTeamQuota sets or clears a team's monthly token budget. At least
 // one of monthlyTokenBudget or clearMonthlyTokenBudget must be provided.
 func (db *Database) UpdateTeamQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Team, error) {

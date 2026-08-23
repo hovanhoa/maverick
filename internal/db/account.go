@@ -59,13 +59,14 @@ func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (
 	return account, nil
 }
 
-// UpdateAccount updates an account's email, username, team assignment, and/or role.
-// At least one of email, username, teamId, clearTeamId, or role must be provided for a meaningful update.
-func (db *Database) UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
+// UpdateAccount updates an account's email, username, display name, team
+// assignment, and/or role. At least one of email, username, name, teamId,
+// clearTeamId, or role must be provided for a meaningful update.
+func (db *Database) UpdateAccount(ctx context.Context, id string, email *string, username *string, name *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error) {
 	clear := clearTeamID != nil && *clearTeamID
 	hasTeamID := teamID != nil && *teamID != ""
-	if email == nil && username == nil && !hasTeamID && !clear && role == nil {
-		return nil, errors.New("at least one of email, username, teamId, clearTeamId, or role must be provided")
+	if email == nil && username == nil && name == nil && !hasTeamID && !clear && role == nil {
+		return nil, errors.New("at least one of email, username, name, teamId, clearTeamId, or role must be provided")
 	}
 	if clear && hasTeamID {
 		return nil, errors.New("cannot set teamId and clearTeamId in the same request")
@@ -87,6 +88,9 @@ func (db *Database) UpdateAccount(ctx context.Context, id string, email *string,
 	}
 	if username != nil {
 		existing.Username = *username
+	}
+	if name != nil {
+		existing.Name = name
 	}
 	if role != nil {
 		existing.Role = *role

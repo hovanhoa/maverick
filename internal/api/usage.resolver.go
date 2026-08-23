@@ -15,3 +15,38 @@ import (
 func (r *queryResolver) TeamUsage(ctx context.Context, teamID string, since *time.Time) (*model.UsageSummary, error) {
 	return r.teamUsage(ctx, teamID, since)
 }
+
+// MyUsage is the resolver for the myUsage field.
+func (r *queryResolver) MyUsage(ctx context.Context, since *time.Time) (*model.UsageSummary, error) {
+	return r.myUsage(ctx, since)
+}
+
+// AccountUsage is the resolver for the accountUsage field.
+func (r *queryResolver) AccountUsage(ctx context.Context, accountID string, since *time.Time) (*model.UsageSummary, error) {
+	return r.accountUsage(ctx, accountID, since)
+}
+
+// TeamUsageByAccount is the resolver for the teamUsageByAccount field.
+func (r *queryResolver) TeamUsageByAccount(ctx context.Context, teamID string, since *time.Time) ([]model.AccountUsage, error) {
+	return r.teamUsageByAccount(ctx, teamID, since)
+}
+
+// TeamUsageByModel is the resolver for the teamUsageByModel field.
+func (r *queryResolver) TeamUsageByModel(ctx context.Context, teamID string, since *time.Time) ([]model.ModelUsage, error) {
+	return r.teamUsageByModel(ctx, teamID, since)
+}
+
+// TeamUsageDaily is the resolver for the teamUsageDaily field.
+func (r *queryResolver) TeamUsageDaily(ctx context.Context, teamID string, since *time.Time, until *time.Time) ([]model.DailyUsage, error) {
+	return r.teamUsageDaily(ctx, teamID, since, until)
+}
+
+// GlobalUsage is the resolver for the globalUsage field.
+func (r *queryResolver) GlobalUsage(ctx context.Context, since *time.Time) (*model.UsageSummary, error) {
+	return r.globalUsage(ctx, since)
+}
+
+// GlobalUsageByTeam is the resolver for the globalUsageByTeam field.
+func (r *queryResolver) GlobalUsageByTeam(ctx context.Context, since *time.Time) ([]model.TeamUsage, error) {
+	return r.globalUsageByTeam(ctx, since)
+}

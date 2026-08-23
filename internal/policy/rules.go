@@ -77,28 +77,50 @@ var sensitivePatterns = []*regexp.Regexp{
 }
 
 // SensitiveDataRedaction replaces text that looks like a secret or PII
-// with "[REDACTED]" rather than denying the request outright.
-type SensitiveDataRedaction struct{}
+// with "[REDACTED]" rather than denying the request outright, unless Deny
+// is set.
+type SensitiveDataRedaction struct {
+	// Deny, if true, denies the request outright on a match instead of
+	// redacting and continuing. Off by default - the platform baseline
+	// (DefaultChain) always redacts; a team opts into the stricter
+	// behavior via its policy overrides (see TeamChain in default.go).
+	Deny bool
+}
 
 func (r SensitiveDataRedaction) Name() string { return "sensitive_data_redaction" }
 
 func (r SensitiveDataRedaction) Evaluate(req *openai.ChatCompletionRequest) (*openai.ChatCompletionRequest, Decision) {
-	redacted := false
-	messages := make([]openai.Message, len(req.Messages))
+	matched := false
+	for _, m := range req.Messages {
+		for _, pattern := range sensitivePatterns {
+			if pattern.MatchString(m.Content) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			break
+		}
+	}
+	if !matched {
+		return req, allow()
+	}
 
+	if r.Deny {
+		return nil, Decision{
+			Action:     ActionDeny,
+			ReasonCode: "sensitive_data_denied",
+			Message:    "request content appears to contain a secret or sensitive data",
+		}
+	}
+
+	messages := make([]openai.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		content := m.Content
 		for _, pattern := range sensitivePatterns {
-			if pattern.MatchString(content) {
-				redacted = true
-				content = pattern.ReplaceAllString(content, "[REDACTED]")
-			}
+			content = pattern.ReplaceAllString(content, "[REDACTED]")
 		}
 		messages[i] = openai.Message{Role: m.Role, Content: content}
-	}
-
-	if !redacted {
-		return req, allow()
 	}
 
 	out := *req

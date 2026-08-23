@@ -31,6 +31,14 @@ type Provider interface {
 // or a terminal error.
 type StreamEvent struct {
 	Chunk *openai.ChatCompletionChunk
+	// Usage carries final token accounting when an adapter can reliably
+	// determine it from the stream (not all can - see each adapter's
+	// StreamChatCompletion). When set, it always rides alongside the same
+	// event as the finish-reason chunk, never a separate event, and is
+	// purely an internal signal for usage/quota reconciliation - it is
+	// never serialized to the client (internal/http only ever reads
+	// Chunk/Err off this struct).
+	Usage *openai.Usage
 	Err   error
 }
 

@@ -247,6 +247,47 @@ func (ec *executionContext) fieldContext_ApiKey_revokedAt(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _ApiKey_lastUsedAt(ctx context.Context, field graphql.CollectedField, obj *model.APIKey) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ApiKey_lastUsedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LastUsedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*time.Time)
+	fc.Result = res
+	return ec.marshalOTime2ᚖtimeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ApiKey_lastUsedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ApiKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ApiKeySecret_apiKey(ctx context.Context, field graphql.CollectedField, obj *model.APIKeySecret) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_ApiKeySecret_apiKey(ctx, field)
 	if err != nil {
@@ -296,6 +337,8 @@ func (ec *executionContext) fieldContext_ApiKeySecret_apiKey(_ context.Context, 
 				return ec.fieldContext_ApiKey_createdAt(ctx, field)
 			case "revokedAt":
 				return ec.fieldContext_ApiKey_revokedAt(ctx, field)
+			case "lastUsedAt":
+				return ec.fieldContext_ApiKey_lastUsedAt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ApiKey", field.Name)
 		},
@@ -392,6 +435,8 @@ func (ec *executionContext) _ApiKey(ctx context.Context, sel ast.SelectionSet, o
 			}
 		case "revokedAt":
 			out.Values[i] = ec._ApiKey_revokedAt(ctx, field, obj)
+		case "lastUsedAt":
+			out.Values[i] = ec._ApiKey_lastUsedAt(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

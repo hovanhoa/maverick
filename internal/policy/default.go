@@ -16,3 +16,35 @@ func DefaultChain(blockedPatterns ...string) *Chain {
 		SensitiveDataRedaction{},
 	)
 }
+
+// TeamOverrides carries a team's policy customizations. It only adds
+// deny-type checks on top of the platform baseline (DefaultChain) - see
+// TeamChain and internal/proxy/proxy.go's prepare(), which runs a team's
+// TeamChain ahead of the baseline chain so a stricter deny always sees
+// the original, unredacted content rather than whatever the baseline
+// chain already redacted.
+type TeamOverrides struct {
+	BlockedPatterns     []string
+	DenyOnSensitiveData bool
+}
+
+// HasOverrides reports whether o customizes anything, so callers can skip
+// building and running a chain for the common case of an unconfigured
+// team.
+func (o TeamOverrides) HasOverrides() bool {
+	return len(o.BlockedPatterns) > 0 || o.DenyOnSensitiveData
+}
+
+// TeamChain returns a policy chain for a team's overrides alone. It is
+// meant to run ahead of DefaultChain, not in place of it - a team can only
+// make policy stricter than the platform baseline, never weaker.
+func TeamChain(o TeamOverrides) *Chain {
+	var rules []Rule
+	if len(o.BlockedPatterns) > 0 {
+		rules = append(rules, BlockedPatterns{Patterns: o.BlockedPatterns})
+	}
+	if o.DenyOnSensitiveData {
+		rules = append(rules, SensitiveDataRedaction{Deny: true})
+	}
+	return NewChain(rules...)
+}

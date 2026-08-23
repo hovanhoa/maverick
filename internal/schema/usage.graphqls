@@ -29,10 +29,118 @@ type UsageSummary {
     costUsd: Float!
 }
 
+"""
+AccountUsage is one account's UsageSummary, e.g. a row in a team's
+per-member usage breakdown.
+"""
+type AccountUsage {
+    accountId: ID!
+    requestCount: Int!
+    promptTokens: Int!
+    completionTokens: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
+"""
+ModelUsage is one provider/model pair's UsageSummary, e.g. a row of a
+team's usage-by-model breakdown.
+"""
+type ModelUsage {
+    provider: String!
+    model: String!
+    requestCount: Int!
+    promptTokens: Int!
+    completionTokens: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
+"""
+TeamUsage is one team's UsageSummary, e.g. a row of the platform-wide
+usage-by-team breakdown.
+"""
+type TeamUsage {
+    teamId: ID!
+    """
+    Display name of the team, resolved server-side since globalUsageByTeam
+    is the only view of teams other than the caller's own - there is no
+    "list all teams" query for the client to resolve names against.
+    """
+    name: String!
+    requestCount: Int!
+    promptTokens: Int!
+    completionTokens: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
+"""
+DailyUsage is a coarser rollup than UsageSummary meant for charting a usage
+trend: one point per calendar day (UTC), with request count, total tokens,
+and cost, but no prompt/completion token split.
+"""
+type DailyUsage {
+    date: Time!
+    requestCount: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
 extend type Query {
     """
     Aggregate LLM proxy usage for a team, optionally restricted to calls
     since the given timestamp (default: start of the current calendar month).
     """
     teamUsage(teamId: ID!, since: Time): UsageSummary!
+
+    """
+    Aggregate LLM proxy usage for the currently authenticated account,
+    since the given timestamp (default: start of the current calendar
+    month).
+    """
+    myUsage(since: Time): UsageSummary!
+
+    """
+    Aggregate LLM proxy usage for a single account, since the given
+    timestamp (default: start of the current calendar month). Callable by
+    the account itself, or by an OWNER/ADMIN of the account's team.
+    """
+    accountUsage(accountId: ID!, since: Time): UsageSummary!
+
+    """
+    Per-member usage breakdown for a team, since the given timestamp
+    (default: start of the current calendar month). Restricted to an
+    OWNER/ADMIN of that team, since it exposes individual members' usage
+    and spend.
+    """
+    teamUsageByAccount(teamId: ID!, since: Time): [AccountUsage!]!
+
+    """
+    Usage broken down by provider/model for a team, since the given
+    timestamp (default: start of the current calendar month). Open to any
+    member of the team, like teamUsage.
+    """
+    teamUsageByModel(teamId: ID!, since: Time): [ModelUsage!]!
+
+    """
+    Daily usage trend for a team between since (default: start of the
+    current calendar month) and until (default: now), for charting. Open
+    to any member of the team, like teamUsage.
+    """
+    teamUsageDaily(teamId: ID!, since: Time, until: Time): [DailyUsage!]!
+
+    """
+    Platform-wide LLM proxy usage across every team and account, since the
+    given timestamp (default: start of the current calendar month).
+    OWNER/ADMIN only.
+    """
+    globalUsage(since: Time): UsageSummary!
+
+    """
+    Platform-wide LLM proxy usage broken down by team, since the given
+    timestamp (default: start of the current calendar month). OWNER/ADMIN
+    only.
+    """
+    globalUsageByTeam(since: Time): [TeamUsage!]!
 }

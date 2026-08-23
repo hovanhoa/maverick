@@ -20,9 +20,10 @@ import (
 // region    ************************** generated!.gotpl **************************
 
 type MutationResolver interface {
-	CreateAccount(ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.Account, error)
-	UpdateAccount(ctx context.Context, id string, email *string, username *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error)
+	CreateAccount(ctx context.Context, email string, username string, teamID *string, role *model.Role) (*model.AccountSecret, error)
+	UpdateAccount(ctx context.Context, id string, email *string, username *string, name *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error)
 	DeleteAccount(ctx context.Context, id string) (bool, error)
+	ResetAccountPassword(ctx context.Context, id string) (*model.AccountSecret, error)
 	CreateAPIKey(ctx context.Context, accountID string) (*model.APIKeySecret, error)
 	RevokeAPIKey(ctx context.Context, id string) (bool, error)
 	CreateTeam(ctx context.Context, name string) (*model.Team, error)
@@ -30,16 +31,27 @@ type MutationResolver interface {
 	DeleteTeam(ctx context.Context, id string) (bool, error)
 	UpdateTeamModelAllowlist(ctx context.Context, teamID string, allowlist []string) (*model.Team, error)
 	UpdateTeamQuota(ctx context.Context, teamID string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Team, error)
+	UpdateTeamPolicy(ctx context.Context, teamID string, blockedPatterns []string, denyOnSensitiveData bool) (*model.Team, error)
 }
 type QueryResolver interface {
 	Accounts(ctx context.Context, teamID *string, limit *int, offset *int) (*model.AccountConnection, error)
 	Account(ctx context.Context, id string) (*model.Account, error)
 	Me(ctx context.Context) (*model.Account, error)
 	APIKeys(ctx context.Context, accountID string) ([]model.APIKey, error)
+	TeamRequestLogs(ctx context.Context, teamID string, limit *int, offset *int) (*model.RequestLogConnection, error)
+	MyRequestLogs(ctx context.Context, limit *int, offset *int) (*model.RequestLogConnection, error)
+	GlobalRequestLogs(ctx context.Context, limit *int, offset *int) (*model.RequestLogConnection, error)
 	Teams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error)
 	Team(ctx context.Context, id string) (*model.Team, error)
 	IsModelAllowed(ctx context.Context, teamID string, provider string, model string) (bool, error)
 	TeamUsage(ctx context.Context, teamID string, since *time.Time) (*model.UsageSummary, error)
+	MyUsage(ctx context.Context, since *time.Time) (*model.UsageSummary, error)
+	AccountUsage(ctx context.Context, accountID string, since *time.Time) (*model.UsageSummary, error)
+	TeamUsageByAccount(ctx context.Context, teamID string, since *time.Time) ([]model.AccountUsage, error)
+	TeamUsageByModel(ctx context.Context, teamID string, since *time.Time) ([]model.ModelUsage, error)
+	TeamUsageDaily(ctx context.Context, teamID string, since *time.Time, until *time.Time) ([]model.DailyUsage, error)
+	GlobalUsage(ctx context.Context, since *time.Time) (*model.UsageSummary, error)
+	GlobalUsageByTeam(ctx context.Context, since *time.Time) ([]model.TeamUsage, error)
 }
 
 // endregion ************************** generated!.gotpl **************************
@@ -255,6 +267,34 @@ func (ec *executionContext) field_Mutation_deleteTeam_argsID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Mutation_resetAccountPassword_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_resetAccountPassword_argsID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_resetAccountPassword_argsID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["id"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+	if tmp, ok := rawArgs["id"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Mutation_revokeApiKey_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -301,21 +341,26 @@ func (ec *executionContext) field_Mutation_updateAccount_args(ctx context.Contex
 		return nil, err
 	}
 	args["username"] = arg2
-	arg3, err := ec.field_Mutation_updateAccount_argsTeamID(ctx, rawArgs)
+	arg3, err := ec.field_Mutation_updateAccount_argsName(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["teamId"] = arg3
-	arg4, err := ec.field_Mutation_updateAccount_argsClearTeamID(ctx, rawArgs)
+	args["name"] = arg3
+	arg4, err := ec.field_Mutation_updateAccount_argsTeamID(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["clearTeamId"] = arg4
-	arg5, err := ec.field_Mutation_updateAccount_argsRole(ctx, rawArgs)
+	args["teamId"] = arg4
+	arg5, err := ec.field_Mutation_updateAccount_argsClearTeamID(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["role"] = arg5
+	args["clearTeamId"] = arg5
+	arg6, err := ec.field_Mutation_updateAccount_argsRole(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["role"] = arg6
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_updateAccount_argsID(
@@ -365,6 +410,24 @@ func (ec *executionContext) field_Mutation_updateAccount_argsUsername(
 
 	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("username"))
 	if tmp, ok := rawArgs["username"]; ok {
+		return ec.unmarshalOString2ᚖstring(ctx, tmp)
+	}
+
+	var zeroVal *string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateAccount_argsName(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*string, error) {
+	if _, ok := rawArgs["name"]; !ok {
+		var zeroVal *string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+	if tmp, ok := rawArgs["name"]; ok {
 		return ec.unmarshalOString2ᚖstring(ctx, tmp)
 	}
 
@@ -474,6 +537,80 @@ func (ec *executionContext) field_Mutation_updateTeamModelAllowlist_argsAllowlis
 	}
 
 	var zeroVal []string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateTeamPolicy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_updateTeamPolicy_argsTeamID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["teamId"] = arg0
+	arg1, err := ec.field_Mutation_updateTeamPolicy_argsBlockedPatterns(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["blockedPatterns"] = arg1
+	arg2, err := ec.field_Mutation_updateTeamPolicy_argsDenyOnSensitiveData(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["denyOnSensitiveData"] = arg2
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_updateTeamPolicy_argsTeamID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["teamId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("teamId"))
+	if tmp, ok := rawArgs["teamId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateTeamPolicy_argsBlockedPatterns(
+	ctx context.Context,
+	rawArgs map[string]any,
+) ([]string, error) {
+	if _, ok := rawArgs["blockedPatterns"]; !ok {
+		var zeroVal []string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("blockedPatterns"))
+	if tmp, ok := rawArgs["blockedPatterns"]; ok {
+		return ec.unmarshalNString2ᚕstringᚄ(ctx, tmp)
+	}
+
+	var zeroVal []string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateTeamPolicy_argsDenyOnSensitiveData(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (bool, error) {
+	if _, ok := rawArgs["denyOnSensitiveData"]; !ok {
+		var zeroVal bool
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("denyOnSensitiveData"))
+	if tmp, ok := rawArgs["denyOnSensitiveData"]; ok {
+		return ec.unmarshalNBoolean2bool(ctx, tmp)
+	}
+
+	var zeroVal bool
 	return zeroVal, nil
 }
 
@@ -630,6 +767,57 @@ func (ec *executionContext) field_Query___type_argsName(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Query_accountUsage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_accountUsage_argsAccountID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["accountId"] = arg0
+	arg1, err := ec.field_Query_accountUsage_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg1
+	return args, nil
+}
+func (ec *executionContext) field_Query_accountUsage_argsAccountID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["accountId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("accountId"))
+	if tmp, ok := rawArgs["accountId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_accountUsage_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Query_account_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -760,6 +948,113 @@ func (ec *executionContext) field_Query_apiKeys_argsAccountID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Query_globalRequestLogs_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_globalRequestLogs_argsLimit(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	arg1, err := ec.field_Query_globalRequestLogs_argsOffset(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg1
+	return args, nil
+}
+func (ec *executionContext) field_Query_globalRequestLogs_argsLimit(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["limit"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+	if tmp, ok := rawArgs["limit"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_globalRequestLogs_argsOffset(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["offset"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("offset"))
+	if tmp, ok := rawArgs["offset"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_globalUsageByTeam_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_globalUsageByTeam_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_globalUsageByTeam_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_globalUsage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_globalUsage_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_globalUsage_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Query_isModelAllowed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -831,6 +1126,335 @@ func (ec *executionContext) field_Query_isModelAllowed_argsModel(
 	}
 
 	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_myRequestLogs_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_myRequestLogs_argsLimit(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	arg1, err := ec.field_Query_myRequestLogs_argsOffset(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg1
+	return args, nil
+}
+func (ec *executionContext) field_Query_myRequestLogs_argsLimit(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["limit"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+	if tmp, ok := rawArgs["limit"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_myRequestLogs_argsOffset(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["offset"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("offset"))
+	if tmp, ok := rawArgs["offset"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_myUsage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_myUsage_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_myUsage_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamRequestLogs_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_teamRequestLogs_argsTeamID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["teamId"] = arg0
+	arg1, err := ec.field_Query_teamRequestLogs_argsLimit(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
+	arg2, err := ec.field_Query_teamRequestLogs_argsOffset(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg2
+	return args, nil
+}
+func (ec *executionContext) field_Query_teamRequestLogs_argsTeamID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["teamId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("teamId"))
+	if tmp, ok := rawArgs["teamId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamRequestLogs_argsLimit(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["limit"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+	if tmp, ok := rawArgs["limit"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamRequestLogs_argsOffset(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["offset"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("offset"))
+	if tmp, ok := rawArgs["offset"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageByAccount_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_teamUsageByAccount_argsTeamID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["teamId"] = arg0
+	arg1, err := ec.field_Query_teamUsageByAccount_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg1
+	return args, nil
+}
+func (ec *executionContext) field_Query_teamUsageByAccount_argsTeamID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["teamId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("teamId"))
+	if tmp, ok := rawArgs["teamId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageByAccount_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageByModel_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_teamUsageByModel_argsTeamID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["teamId"] = arg0
+	arg1, err := ec.field_Query_teamUsageByModel_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg1
+	return args, nil
+}
+func (ec *executionContext) field_Query_teamUsageByModel_argsTeamID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["teamId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("teamId"))
+	if tmp, ok := rawArgs["teamId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageByModel_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageDaily_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_teamUsageDaily_argsTeamID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["teamId"] = arg0
+	arg1, err := ec.field_Query_teamUsageDaily_argsSince(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg1
+	arg2, err := ec.field_Query_teamUsageDaily_argsUntil(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["until"] = arg2
+	return args, nil
+}
+func (ec *executionContext) field_Query_teamUsageDaily_argsTeamID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["teamId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("teamId"))
+	if tmp, ok := rawArgs["teamId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageDaily_argsSince(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["since"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("since"))
+	if tmp, ok := rawArgs["since"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_teamUsageDaily_argsUntil(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*time.Time, error) {
+	if _, ok := rawArgs["until"]; !ok {
+		var zeroVal *time.Time
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("until"))
+	if tmp, ok := rawArgs["until"]; ok {
+		return ec.unmarshalOTime2ᚖtimeᚐTime(ctx, tmp)
+	}
+
+	var zeroVal *time.Time
 	return zeroVal, nil
 }
 
@@ -1104,6 +1728,47 @@ func (ec *executionContext) fieldContext_Account_username(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _Account_name(ctx context.Context, field graphql.CollectedField, obj *model.Account) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Account_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Account_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Account",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Account_teamId(ctx context.Context, field graphql.CollectedField, obj *model.Account) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Account_teamId(ctx, field)
 	if err != nil {
@@ -1322,6 +1987,8 @@ func (ec *executionContext) fieldContext_AccountConnection_items(_ context.Conte
 				return ec.fieldContext_Account_email(ctx, field)
 			case "username":
 				return ec.fieldContext_Account_username(ctx, field)
+			case "name":
+				return ec.fieldContext_Account_name(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
@@ -1425,6 +2092,112 @@ func (ec *executionContext) fieldContext_AccountConnection_hasNextPage(_ context
 	return fc, nil
 }
 
+func (ec *executionContext) _AccountSecret_account(ctx context.Context, field graphql.CollectedField, obj *model.AccountSecret) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountSecret_account(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Account, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(model.Account)
+	fc.Result = res
+	return ec.marshalNAccount2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccount(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AccountSecret_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountSecret",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Account_id(ctx, field)
+			case "email":
+				return ec.fieldContext_Account_email(ctx, field)
+			case "username":
+				return ec.fieldContext_Account_username(ctx, field)
+			case "name":
+				return ec.fieldContext_Account_name(ctx, field)
+			case "teamId":
+				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Account_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Account_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccountSecret_password(ctx context.Context, field graphql.CollectedField, obj *model.AccountSecret) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountSecret_password(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Password, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AccountSecret_password(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountSecret",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_createAccount(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Mutation_createAccount(ctx, field)
 	if err != nil {
@@ -1451,9 +2224,9 @@ func (ec *executionContext) _Mutation_createAccount(ctx context.Context, field g
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*model.Account)
+	res := resTmp.(*model.AccountSecret)
 	fc.Result = res
-	return ec.marshalNAccount2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccount(ctx, field.Selections, res)
+	return ec.marshalNAccountSecret2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccountSecret(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Mutation_createAccount(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -1464,22 +2237,12 @@ func (ec *executionContext) fieldContext_Mutation_createAccount(ctx context.Cont
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_Account_id(ctx, field)
-			case "email":
-				return ec.fieldContext_Account_email(ctx, field)
-			case "username":
-				return ec.fieldContext_Account_username(ctx, field)
-			case "teamId":
-				return ec.fieldContext_Account_teamId(ctx, field)
-			case "role":
-				return ec.fieldContext_Account_role(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Account_createdAt(ctx, field)
-			case "updatedAt":
-				return ec.fieldContext_Account_updatedAt(ctx, field)
+			case "account":
+				return ec.fieldContext_AccountSecret_account(ctx, field)
+			case "password":
+				return ec.fieldContext_AccountSecret_password(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type AccountSecret", field.Name)
 		},
 	}
 	defer func() {
@@ -1510,7 +2273,7 @@ func (ec *executionContext) _Mutation_updateAccount(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().UpdateAccount(rctx, fc.Args["id"].(string), fc.Args["email"].(*string), fc.Args["username"].(*string), fc.Args["teamId"].(*string), fc.Args["clearTeamId"].(*bool), fc.Args["role"].(*model.Role))
+		return ec.resolvers.Mutation().UpdateAccount(rctx, fc.Args["id"].(string), fc.Args["email"].(*string), fc.Args["username"].(*string), fc.Args["name"].(*string), fc.Args["teamId"].(*string), fc.Args["clearTeamId"].(*bool), fc.Args["role"].(*model.Role))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1541,6 +2304,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAccount(ctx context.Cont
 				return ec.fieldContext_Account_email(ctx, field)
 			case "username":
 				return ec.fieldContext_Account_username(ctx, field)
+			case "name":
+				return ec.fieldContext_Account_name(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
@@ -1616,6 +2381,67 @@ func (ec *executionContext) fieldContext_Mutation_deleteAccount(ctx context.Cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_deleteAccount_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_resetAccountPassword(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_resetAccountPassword(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().ResetAccountPassword(rctx, fc.Args["id"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.AccountSecret)
+	fc.Result = res
+	return ec.marshalNAccountSecret2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccountSecret(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_resetAccountPassword(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "account":
+				return ec.fieldContext_AccountSecret_account(ctx, field)
+			case "password":
+				return ec.fieldContext_AccountSecret_password(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type AccountSecret", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_resetAccountPassword_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -1789,6 +2615,8 @@ func (ec *executionContext) fieldContext_Mutation_createTeam(ctx context.Context
 				return ec.fieldContext_Team_modelAllowlist(ctx, field)
 			case "monthlyTokenBudget":
 				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
 		},
@@ -1858,6 +2686,8 @@ func (ec *executionContext) fieldContext_Mutation_updateTeam(ctx context.Context
 				return ec.fieldContext_Team_modelAllowlist(ctx, field)
 			case "monthlyTokenBudget":
 				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
 		},
@@ -1982,6 +2812,8 @@ func (ec *executionContext) fieldContext_Mutation_updateTeamModelAllowlist(ctx c
 				return ec.fieldContext_Team_modelAllowlist(ctx, field)
 			case "monthlyTokenBudget":
 				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
 		},
@@ -2051,6 +2883,8 @@ func (ec *executionContext) fieldContext_Mutation_updateTeamQuota(ctx context.Co
 				return ec.fieldContext_Team_modelAllowlist(ctx, field)
 			case "monthlyTokenBudget":
 				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
 		},
@@ -2063,6 +2897,77 @@ func (ec *executionContext) fieldContext_Mutation_updateTeamQuota(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_updateTeamQuota_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateTeamPolicy(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_updateTeamPolicy(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().UpdateTeamPolicy(rctx, fc.Args["teamId"].(string), fc.Args["blockedPatterns"].([]string), fc.Args["denyOnSensitiveData"].(bool))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Team)
+	fc.Result = res
+	return ec.marshalNTeam2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐTeam(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateTeamPolicy(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Team_id(ctx, field)
+			case "name":
+				return ec.fieldContext_Team_name(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Team_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Team_updatedAt(ctx, field)
+			case "modelAllowlist":
+				return ec.fieldContext_Team_modelAllowlist(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateTeamPolicy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -2174,6 +3079,8 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 				return ec.fieldContext_Account_email(ctx, field)
 			case "username":
 				return ec.fieldContext_Account_username(ctx, field)
+			case "name":
+				return ec.fieldContext_Account_name(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
@@ -2245,6 +3152,8 @@ func (ec *executionContext) fieldContext_Query_me(_ context.Context, field graph
 				return ec.fieldContext_Account_email(ctx, field)
 			case "username":
 				return ec.fieldContext_Account_username(ctx, field)
+			case "name":
+				return ec.fieldContext_Account_name(ctx, field)
 			case "teamId":
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
@@ -2309,6 +3218,8 @@ func (ec *executionContext) fieldContext_Query_apiKeys(ctx context.Context, fiel
 				return ec.fieldContext_ApiKey_createdAt(ctx, field)
 			case "revokedAt":
 				return ec.fieldContext_ApiKey_revokedAt(ctx, field)
+			case "lastUsedAt":
+				return ec.fieldContext_ApiKey_lastUsedAt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ApiKey", field.Name)
 		},
@@ -2321,6 +3232,195 @@ func (ec *executionContext) fieldContext_Query_apiKeys(ctx context.Context, fiel
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_apiKeys_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_teamRequestLogs(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_teamRequestLogs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().TeamRequestLogs(rctx, fc.Args["teamId"].(string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.RequestLogConnection)
+	fc.Result = res
+	return ec.marshalNRequestLogConnection2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRequestLogConnection(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_teamRequestLogs(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "items":
+				return ec.fieldContext_RequestLogConnection_items(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_RequestLogConnection_totalCount(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_RequestLogConnection_hasNextPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RequestLogConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_teamRequestLogs_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_myRequestLogs(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_myRequestLogs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().MyRequestLogs(rctx, fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.RequestLogConnection)
+	fc.Result = res
+	return ec.marshalNRequestLogConnection2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRequestLogConnection(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_myRequestLogs(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "items":
+				return ec.fieldContext_RequestLogConnection_items(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_RequestLogConnection_totalCount(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_RequestLogConnection_hasNextPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RequestLogConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_myRequestLogs_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_globalRequestLogs(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_globalRequestLogs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().GlobalRequestLogs(rctx, fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.RequestLogConnection)
+	fc.Result = res
+	return ec.marshalNRequestLogConnection2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRequestLogConnection(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_globalRequestLogs(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "items":
+				return ec.fieldContext_RequestLogConnection_items(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_RequestLogConnection_totalCount(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_RequestLogConnection_hasNextPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RequestLogConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_globalRequestLogs_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -2438,6 +3538,8 @@ func (ec *executionContext) fieldContext_Query_team(ctx context.Context, field g
 				return ec.fieldContext_Team_modelAllowlist(ctx, field)
 			case "monthlyTokenBudget":
 				return ec.fieldContext_Team_monthlyTokenBudget(ctx, field)
+			case "policy":
+				return ec.fieldContext_Team_policy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Team", field.Name)
 		},
@@ -2572,6 +3674,483 @@ func (ec *executionContext) fieldContext_Query_teamUsage(ctx context.Context, fi
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_teamUsage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_myUsage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_myUsage(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().MyUsage(rctx, fc.Args["since"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.UsageSummary)
+	fc.Result = res
+	return ec.marshalNUsageSummary2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐUsageSummary(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_myUsage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "requestCount":
+				return ec.fieldContext_UsageSummary_requestCount(ctx, field)
+			case "promptTokens":
+				return ec.fieldContext_UsageSummary_promptTokens(ctx, field)
+			case "completionTokens":
+				return ec.fieldContext_UsageSummary_completionTokens(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_UsageSummary_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_UsageSummary_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type UsageSummary", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_myUsage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_accountUsage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_accountUsage(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().AccountUsage(rctx, fc.Args["accountId"].(string), fc.Args["since"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.UsageSummary)
+	fc.Result = res
+	return ec.marshalNUsageSummary2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐUsageSummary(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_accountUsage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "requestCount":
+				return ec.fieldContext_UsageSummary_requestCount(ctx, field)
+			case "promptTokens":
+				return ec.fieldContext_UsageSummary_promptTokens(ctx, field)
+			case "completionTokens":
+				return ec.fieldContext_UsageSummary_completionTokens(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_UsageSummary_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_UsageSummary_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type UsageSummary", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_accountUsage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_teamUsageByAccount(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_teamUsageByAccount(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().TeamUsageByAccount(rctx, fc.Args["teamId"].(string), fc.Args["since"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.AccountUsage)
+	fc.Result = res
+	return ec.marshalNAccountUsage2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccountUsageᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_teamUsageByAccount(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "accountId":
+				return ec.fieldContext_AccountUsage_accountId(ctx, field)
+			case "requestCount":
+				return ec.fieldContext_AccountUsage_requestCount(ctx, field)
+			case "promptTokens":
+				return ec.fieldContext_AccountUsage_promptTokens(ctx, field)
+			case "completionTokens":
+				return ec.fieldContext_AccountUsage_completionTokens(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_AccountUsage_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_AccountUsage_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type AccountUsage", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_teamUsageByAccount_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_teamUsageByModel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_teamUsageByModel(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().TeamUsageByModel(rctx, fc.Args["teamId"].(string), fc.Args["since"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.ModelUsage)
+	fc.Result = res
+	return ec.marshalNModelUsage2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐModelUsageᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_teamUsageByModel(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "provider":
+				return ec.fieldContext_ModelUsage_provider(ctx, field)
+			case "model":
+				return ec.fieldContext_ModelUsage_model(ctx, field)
+			case "requestCount":
+				return ec.fieldContext_ModelUsage_requestCount(ctx, field)
+			case "promptTokens":
+				return ec.fieldContext_ModelUsage_promptTokens(ctx, field)
+			case "completionTokens":
+				return ec.fieldContext_ModelUsage_completionTokens(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_ModelUsage_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_ModelUsage_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ModelUsage", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_teamUsageByModel_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_teamUsageDaily(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_teamUsageDaily(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().TeamUsageDaily(rctx, fc.Args["teamId"].(string), fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.DailyUsage)
+	fc.Result = res
+	return ec.marshalNDailyUsage2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐDailyUsageᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_teamUsageDaily(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "date":
+				return ec.fieldContext_DailyUsage_date(ctx, field)
+			case "requestCount":
+				return ec.fieldContext_DailyUsage_requestCount(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_DailyUsage_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_DailyUsage_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DailyUsage", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_teamUsageDaily_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_globalUsage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_globalUsage(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().GlobalUsage(rctx, fc.Args["since"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.UsageSummary)
+	fc.Result = res
+	return ec.marshalNUsageSummary2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐUsageSummary(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_globalUsage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "requestCount":
+				return ec.fieldContext_UsageSummary_requestCount(ctx, field)
+			case "promptTokens":
+				return ec.fieldContext_UsageSummary_promptTokens(ctx, field)
+			case "completionTokens":
+				return ec.fieldContext_UsageSummary_completionTokens(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_UsageSummary_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_UsageSummary_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type UsageSummary", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_globalUsage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_globalUsageByTeam(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_globalUsageByTeam(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().GlobalUsageByTeam(rctx, fc.Args["since"].(*time.Time))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.TeamUsage)
+	fc.Result = res
+	return ec.marshalNTeamUsage2ᚕgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐTeamUsageᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_globalUsageByTeam(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "teamId":
+				return ec.fieldContext_TeamUsage_teamId(ctx, field)
+			case "name":
+				return ec.fieldContext_TeamUsage_name(ctx, field)
+			case "requestCount":
+				return ec.fieldContext_TeamUsage_requestCount(ctx, field)
+			case "promptTokens":
+				return ec.fieldContext_TeamUsage_promptTokens(ctx, field)
+			case "completionTokens":
+				return ec.fieldContext_TeamUsage_completionTokens(ctx, field)
+			case "totalTokens":
+				return ec.fieldContext_TeamUsage_totalTokens(ctx, field)
+			case "costUsd":
+				return ec.fieldContext_TeamUsage_costUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type TeamUsage", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_globalUsageByTeam_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -2747,6 +4326,8 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "name":
+			out.Values[i] = ec._Account_name(ctx, field, obj)
 		case "teamId":
 			out.Values[i] = ec._Account_teamId(ctx, field, obj)
 		case "role":
@@ -2836,6 +4417,50 @@ func (ec *executionContext) _AccountConnection(ctx context.Context, sel ast.Sele
 	return out
 }
 
+var accountSecretImplementors = []string{"AccountSecret"}
+
+func (ec *executionContext) _AccountSecret(ctx context.Context, sel ast.SelectionSet, obj *model.AccountSecret) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accountSecretImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AccountSecret")
+		case "account":
+			out.Values[i] = ec._AccountSecret_account(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "password":
+			out.Values[i] = ec._AccountSecret_password(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var mutationImplementors = []string{"Mutation"}
 
 func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
@@ -2872,6 +4497,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "deleteAccount":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_deleteAccount(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resetAccountPassword":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_resetAccountPassword(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -2921,6 +4553,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "updateTeamQuota":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_updateTeamQuota(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateTeamPolicy":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateTeamPolicy(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -3052,6 +4691,72 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "teamRequestLogs":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_teamRequestLogs(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "myRequestLogs":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_myRequestLogs(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "globalRequestLogs":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_globalRequestLogs(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "teams":
 			field := field
 
@@ -3125,6 +4830,160 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_teamUsage(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "myUsage":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_myUsage(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "accountUsage":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_accountUsage(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "teamUsageByAccount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_teamUsageByAccount(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "teamUsageByModel":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_teamUsageByModel(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "teamUsageDaily":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_teamUsageDaily(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "globalUsage":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_globalUsage(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "globalUsageByTeam":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_globalUsageByTeam(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -3242,6 +5101,20 @@ func (ec *executionContext) marshalNAccountConnection2ᚖgithubᚗcomᚋhovanhoa
 		return graphql.Null
 	}
 	return ec._AccountConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNAccountSecret2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccountSecret(ctx context.Context, sel ast.SelectionSet, v model.AccountSecret) graphql.Marshaler {
+	return ec._AccountSecret(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNAccountSecret2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccountSecret(ctx context.Context, sel ast.SelectionSet, v *model.AccountSecret) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._AccountSecret(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNRole2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐRole(ctx context.Context, v any) (model.Role, error) {

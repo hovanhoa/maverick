@@ -35,6 +35,33 @@ type Team {
     been configured yet.
     """
     monthlyTokenBudget: Int
+
+    """
+    Content-policy overrides for this team, layered on top of the platform
+    baseline (the prompt-length and sensitive-data guardrails that apply to
+    every request regardless of team). This only adds to or tightens the
+    baseline, never weakens it.
+    """
+    policy: TeamPolicy!
+}
+
+"""
+TeamPolicy is a team's content-policy overrides, on top of the platform
+baseline.
+"""
+type TeamPolicy {
+    """
+    Additional case-insensitive substrings denied for this team, on top of
+    the platform baseline. Empty by default.
+    """
+    blockedPatterns: [String!]!
+
+    """
+    If true, a request whose content looks like it contains a secret (an
+    API key or credit card number) is denied outright instead of the
+    platform default of redacting it and continuing.
+    """
+    denyOnSensitiveData: Boolean!
 }
 
 """
@@ -105,4 +132,10 @@ extend type Mutation {
     caller to be an OWNER or ADMIN.
     """
     updateTeamQuota(teamId: ID!, monthlyTokenBudget: Int, clearMonthlyTokenBudget: Boolean): Team!
+
+    """
+    Replace a team's content-policy overrides wholesale. Requires the
+    caller to be an OWNER or ADMIN.
+    """
+    updateTeamPolicy(teamId: ID!, blockedPatterns: [String!]!, denyOnSensitiveData: Boolean!): Team!
 }

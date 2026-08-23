@@ -27,6 +27,11 @@ type ApiKey {
     Timestamp the key was revoked, if it has been
     """
     revokedAt: Time
+
+    """
+    Timestamp this key last successfully authenticated a request, if ever
+    """
+    lastUsedAt: Time
 }
 
 """

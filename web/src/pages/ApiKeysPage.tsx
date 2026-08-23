@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { PlusIcon, NoSymbolIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { PlusIcon, NoSymbolIcon, ClipboardDocumentIcon, PlayIcon } from '@heroicons/react/24/outline';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -11,8 +11,22 @@ import { listApiKeys, createApiKey, revokeApiKey } from '../lib/apikeys';
 import { useAuth } from '../lib/auth';
 import type { Account, ApiKey } from '../lib/api';
 
+/** Formats an ISO timestamp as relative time (e.g. "3h ago"), or "Never" for null. */
+function formatLastUsed(iso: string | null): string {
+  if (!iso) return 'Never';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
 export function ApiKeysPage() {
   const { account: me, isOwnerOrAdmin } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const accountId = searchParams.get('accountId') ?? '';
 
@@ -55,13 +69,14 @@ export function ApiKeysPage() {
     setSearchParams(id ? { accountId: id } : {});
   };
 
-  // Non-privileged callers may only manage their own keys, so there is
-  // nothing to pick - default straight to their own account.
+  // Default to the signed-in account when nothing is selected yet - most
+  // visits are "show me my own keys", even for an OWNER/ADMIN who could
+  // pick someone else's via the dropdown.
   React.useEffect(() => {
-    if (!isOwnerOrAdmin && !accountId && me) {
+    if (!accountId && me) {
       selectAccount(me.id);
     }
-  }, [isOwnerOrAdmin, accountId, me]);
+  }, [accountId, me]);
 
   const manageableAccounts = isOwnerOrAdmin ? accounts : accounts.filter((a) => a.id === me?.id);
 
@@ -146,6 +161,10 @@ export function ApiKeysPage() {
               <ClipboardDocumentIcon className="h-4 w-4" />
               {copied ? 'Copied' : 'Copy'}
             </Button>
+            <Button onClick={() => navigate('/playground', { state: { apiKey: freshKey } })} title="Test this key in the Playground">
+              <PlayIcon className="h-4 w-4" />
+              Test
+            </Button>
           </div>
         </Card>
       )}
@@ -167,6 +186,7 @@ export function ApiKeysPage() {
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Prefix</th>
                   <th className="px-5 py-2.5 font-medium">Created</th>
+                  <th className="px-5 py-2.5 font-medium">Last used</th>
                   <th className="px-5 py-2.5 font-medium">Status</th>
                   <th className="px-5 py-2.5" />
                 </tr>
@@ -176,6 +196,9 @@ export function ApiKeysPage() {
                   <tr key={key.id} className="hover:bg-neutral-950/[0.02] dark:hover:bg-white/[0.02]">
                     <td className="px-5 py-3 font-mono text-neutral-900 dark:text-white">{key.prefix}…</td>
                     <td className="px-5 py-3 text-neutral-500 dark:text-neutral-400">{new Date(key.createdAt).toLocaleString()}</td>
+                    <td className="px-5 py-3 text-neutral-500 dark:text-neutral-400" title={key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : undefined}>
+                      {formatLastUsed(key.lastUsedAt)}
+                    </td>
                     <td className="px-5 py-3">
                       {key.revokedAt ? <Badge tone="alert">Revoked</Badge> : <Badge tone="ok">Active</Badge>}
                     </td>
@@ -190,7 +213,7 @@ export function ApiKeysPage() {
                 ))}
                 {!loading && keys.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-5 py-10 text-center text-sm text-neutral-400">
+                    <td colSpan={5} className="px-5 py-10 text-center text-sm text-neutral-400">
                       No keys issued yet.
                     </td>
                   </tr>

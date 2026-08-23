@@ -132,6 +132,7 @@ func (s *Service) getChatRouter(authorizer *authz.Authorizer) http.IRouterGroup 
 func (s *Service) setupService() {
 	// Set up the routes
 	s.Service.Router().GET("/ping", http.HandleAPIResponse(s.ping))
+	s.Service.Router().POST("/login", http.HandleAPIResponse(s.login))
 
 	authorizer := authz.New(authz.Dependencies{Database: s.deps.DB})
 
@@ -144,4 +145,15 @@ func (s *Service) setupService() {
 
 	// Set up the LLM proxy
 	s.getChatRouter(authorizer).POST("/chat/completions", s.chatCompletions)
+
+	// Avatar routes are plain REST, not GraphQL, since they move raw image
+	// bytes rather than JSON. GET is deliberately unauthenticated (see
+	// getAvatar's doc comment); POST/DELETE require the caller to be the
+	// account in question.
+	s.Service.Router().GET("/accounts/:id/avatar", s.getAvatar)
+	avatarAuthRouter := s.Service.Router().Group("/accounts")
+	avatarAuthRouter.Use(http.AuthMiddleware[model.Identity, model.Role](authorizer))
+	avatarAuthRouter.Use(http.RequireAuth[model.Identity, model.Role]())
+	avatarAuthRouter.POST("/:id/avatar", s.uploadAvatar)
+	avatarAuthRouter.DELETE("/:id/avatar", s.deleteAvatar)
 }

@@ -70,18 +70,19 @@ func (db *Database) CreateAPIKey(ctx context.Context, accountID string) (*model.
 }
 
 // GetAccountByAPIKeyHash returns the account associated with a non-revoked
-// API key matching the given hash. A nil account and nil error means no
-// matching, non-revoked key was found.
+// API key matching the given hash, and records this call as that key's most
+// recent use. A nil account and nil error means no matching, non-revoked key
+// was found.
 func (db *Database) GetAccountByAPIKeyHash(ctx context.Context, hash string) (*model.Account, error) {
 	query, args, err := db.GetSQLClient().Builder().
-		Select("account_id").
-		From("api_key").
+		Update("api_key").
+		Set("last_used_at", time.Now().UTC()).
 		Where(sq.Eq{"key_hash": hash}).
 		Where(sq.Eq{"revoked_at": nil}).
-		Limit(1).
+		Suffix("RETURNING account_id").
 		ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "build get api_key by hash query")
+		return nil, errors.Wrap(err, "build touch api_key by hash query")
 	}
 
 	rows, err := db.GetSQLClient().Runner().Query(ctx, query, args...)
@@ -108,7 +109,7 @@ func (db *Database) GetAccountByAPIKeyHash(ctx context.Context, hash string) (*m
 // returned since they are not persisted.
 func (db *Database) ListAPIKeysByAccount(ctx context.Context, accountID string) ([]model.APIKey, error) {
 	query, args, err := db.GetSQLClient().Builder().
-		Select("id", "account_id", "prefix", "created_at", "revoked_at").
+		Select("id", "account_id", "prefix", "created_at", "revoked_at", "last_used_at").
 		From("api_key").
 		Where(sq.Eq{"account_id": accountID}).
 		OrderBy("created_at DESC", "id DESC").
@@ -126,7 +127,7 @@ func (db *Database) ListAPIKeysByAccount(ctx context.Context, accountID string) 
 	var apiKeys []model.APIKey
 	for rows.Next() {
 		var apiKey model.APIKey
-		if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt); err != nil {
+		if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt, &apiKey.LastUsedAt); err != nil {
 			return nil, errors.Wrap(err, "error scanning row")
 		}
 		apiKeys = append(apiKeys, apiKey)
@@ -139,7 +140,7 @@ func (db *Database) ListAPIKeysByAccount(ctx context.Context, accountID string) 
 // means not found.
 func (db *Database) GetAPIKeyByID(ctx context.Context, id string) (*model.APIKey, error) {
 	query, args, err := db.GetSQLClient().Builder().
-		Select("id", "account_id", "prefix", "created_at", "revoked_at").
+		Select("id", "account_id", "prefix", "created_at", "revoked_at", "last_used_at").
 		From("api_key").
 		Where(sq.Eq{"id": id}).
 		Limit(1).
@@ -159,7 +160,7 @@ func (db *Database) GetAPIKeyByID(ctx context.Context, id string) (*model.APIKey
 	}
 
 	var apiKey model.APIKey
-	if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt); err != nil {
+	if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt, &apiKey.LastUsedAt); err != nil {
 		return nil, errors.Wrap(err, "error scanning row")
 	}
 

@@ -203,6 +203,12 @@ type Account {
     username: String!
 
     """
+    Display name for the account, distinct from its login username. Unset
+    until the account holder sets one.
+    """
+    name: String
+
+    """
     Team this account belongs to, if any
     """
     teamId: ID
@@ -221,6 +227,23 @@ type Account {
     Timestamp the account was last updated
     """
     updatedAt: Time!
+}
+
+"""
+AccountSecret is returned only once, when an account's password is set (at
+creation) or reset. The plaintext password cannot be retrieved again after
+this - if lost, it must be reset.
+"""
+type AccountSecret {
+    """
+    The account this password belongs to
+    """
+    account: Account!
+
+    """
+    The plaintext password. Store it now - it will not be shown again.
+    """
+    password: String!
 }
 
 """
@@ -263,21 +286,31 @@ extend type Query {
 
 extend type Mutation {
     """
-    Create a new account. role defaults to MEMBER.
+    Create a new account. role defaults to MEMBER. A random password is
+    generated for the account and returned once, for signing in at
+    /login - it cannot be retrieved again after this.
     """
-    createAccount(email: String!, username: String!, teamId: ID, role: Role): Account!
+    createAccount(email: String!, username: String!, teamId: ID, role: Role): AccountSecret!
 
     """
-    Update an existing account. Provide at least one of email, username, teamId,
-    clearTeamId, or role. Changing role requires the caller to be an OWNER or ADMIN.
+    Update an existing account. Provide at least one of email, username, name,
+    teamId, clearTeamId, or role. Changing role requires the caller to be an
+    OWNER or ADMIN.
     """
-    updateAccount(id: ID!, email: String, username: String, teamId: ID, clearTeamId: Boolean, role: Role): Account!
+    updateAccount(id: ID!, email: String, username: String, name: String, teamId: ID, clearTeamId: Boolean, role: Role): Account!
 
     """
     Delete an account by ID. Requires the caller to be an OWNER or ADMIN.
     Returns true if a row was removed.
     """
     deleteAccount(id: ID!): Boolean!
+
+    """
+    Generates a new random password for an account, invalidating whatever it
+    had before, and returns it once - it cannot be retrieved again after
+    this. Requires the caller to be an OWNER or ADMIN of the account's team.
+    """
+    resetAccountPassword(id: ID!): AccountSecret!
 }
 `, BuiltIn: false},
 	{Name: "../../schema/apikey.graphqls", Input: `"""
@@ -309,6 +342,11 @@ type ApiKey {
     Timestamp the key was revoked, if it has been
     """
     revokedAt: Time
+
+    """
+    Timestamp this key last successfully authenticated a request, if ever
+    """
+    lastUsedAt: Time
 }
 
 """
@@ -346,6 +384,100 @@ extend type Mutation {
     requires the caller to be an OWNER or ADMIN. Returns true if the key was revoked.
     """
     revokeApiKey(id: ID!): Boolean!
+}
+`, BuiltIn: false},
+	{Name: "../../schema/requestlog.graphqls", Input: `"""
+RequestLogStatus is whether a logged LLM proxy call ultimately succeeded or
+failed, at any stage: validation, allowlist, quota, policy, or provider
+dispatch.
+"""
+enum RequestLogStatus {
+    SUCCESS
+    ERROR
+}
+
+"""
+RequestLog is one durable record of an attempted LLM proxy call - including
+calls that never reached the provider (bad model format, team allowlist
+block, quota exceeded, policy deny) - with the full raw request and (for
+non-streaming calls) response content. This is the audit-trail counterpart
+to UsageSummary/usage_event, which only records completed successful
+calls.
+"""
+type RequestLog {
+    id: ID!
+    requestId: String!
+    accountId: ID!
+    teamId: ID
+    provider: String
+    model: String
+    """
+    The raw model field as the caller sent it (e.g. "anthropic/claude-x"),
+    captured even when it couldn't be resolved to a real provider/model.
+    """
+    requestedModel: String!
+    status: RequestLogStatus!
+    errorKind: String
+    errorMessage: String
+    stream: Boolean!
+    """
+    The original request body, as raw JSON text, exactly as the caller
+    sent it - before any team or baseline content-policy redaction.
+    """
+    requestBody: String!
+    """
+    The raw response body, as JSON text. Null on error, and null for a
+    streamed call (streamed output is not currently reconstructed).
+    """
+    responseBody: String
+    promptTokens: Int
+    completionTokens: Int
+    totalTokens: Int
+    costUsd: Float
+    latencyMs: Int!
+    createdAt: Time!
+}
+
+"""
+RequestLogConnection is a single page of request logs.
+"""
+type RequestLogConnection {
+    """
+    Request logs contained in this page, most recently created first.
+    """
+    items: [RequestLog!]!
+
+    """
+    Total number of request logs matching the query, ignoring pagination.
+    """
+    totalCount: Int!
+
+    """
+    Whether a further page follows this one.
+    """
+    hasNextPage: Boolean!
+}
+
+extend type Query {
+    """
+    Request log for a team, most recent first. Restricted to an OWNER/ADMIN
+    of that team - unlike teamUsage's aggregate numbers, this exposes every
+    member's full raw prompt/response content, so it needs the stricter
+    tier teamUsageByAccount already uses, not teamUsage's open one.
+    """
+    teamRequestLogs(teamId: ID!, limit: Int, offset: Int): RequestLogConnection!
+
+    """
+    Request log for the currently authenticated account's own proxy calls,
+    most recent first.
+    """
+    myRequestLogs(limit: Int, offset: Int): RequestLogConnection!
+
+    """
+    Platform-wide request log across every team and account, most recent
+    first. OWNER/ADMIN only.
+    """
+    globalRequestLogs(limit: Int, offset: Int): RequestLogConnection!
 }
 `, BuiltIn: false},
 	{Name: "../../schema/schema.graphqls", Input: `"""
@@ -511,6 +643,33 @@ type Team {
     been configured yet.
     """
     monthlyTokenBudget: Int
+
+    """
+    Content-policy overrides for this team, layered on top of the platform
+    baseline (the prompt-length and sensitive-data guardrails that apply to
+    every request regardless of team). This only adds to or tightens the
+    baseline, never weakens it.
+    """
+    policy: TeamPolicy!
+}
+
+"""
+TeamPolicy is a team's content-policy overrides, on top of the platform
+baseline.
+"""
+type TeamPolicy {
+    """
+    Additional case-insensitive substrings denied for this team, on top of
+    the platform baseline. Empty by default.
+    """
+    blockedPatterns: [String!]!
+
+    """
+    If true, a request whose content looks like it contains a secret (an
+    API key or credit card number) is denied outright instead of the
+    platform default of redacting it and continuing.
+    """
+    denyOnSensitiveData: Boolean!
 }
 
 """
@@ -581,6 +740,12 @@ extend type Mutation {
     caller to be an OWNER or ADMIN.
     """
     updateTeamQuota(teamId: ID!, monthlyTokenBudget: Int, clearMonthlyTokenBudget: Boolean): Team!
+
+    """
+    Replace a team's content-policy overrides wholesale. Requires the
+    caller to be an OWNER or ADMIN.
+    """
+    updateTeamPolicy(teamId: ID!, blockedPatterns: [String!]!, denyOnSensitiveData: Boolean!): Team!
 }
 `, BuiltIn: false},
 	{Name: "../../schema/usage.graphqls", Input: `"""
@@ -614,12 +779,120 @@ type UsageSummary {
     costUsd: Float!
 }
 
+"""
+AccountUsage is one account's UsageSummary, e.g. a row in a team's
+per-member usage breakdown.
+"""
+type AccountUsage {
+    accountId: ID!
+    requestCount: Int!
+    promptTokens: Int!
+    completionTokens: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
+"""
+ModelUsage is one provider/model pair's UsageSummary, e.g. a row of a
+team's usage-by-model breakdown.
+"""
+type ModelUsage {
+    provider: String!
+    model: String!
+    requestCount: Int!
+    promptTokens: Int!
+    completionTokens: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
+"""
+TeamUsage is one team's UsageSummary, e.g. a row of the platform-wide
+usage-by-team breakdown.
+"""
+type TeamUsage {
+    teamId: ID!
+    """
+    Display name of the team, resolved server-side since globalUsageByTeam
+    is the only view of teams other than the caller's own - there is no
+    "list all teams" query for the client to resolve names against.
+    """
+    name: String!
+    requestCount: Int!
+    promptTokens: Int!
+    completionTokens: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
+"""
+DailyUsage is a coarser rollup than UsageSummary meant for charting a usage
+trend: one point per calendar day (UTC), with request count, total tokens,
+and cost, but no prompt/completion token split.
+"""
+type DailyUsage {
+    date: Time!
+    requestCount: Int!
+    totalTokens: Int!
+    costUsd: Float!
+}
+
 extend type Query {
     """
     Aggregate LLM proxy usage for a team, optionally restricted to calls
     since the given timestamp (default: start of the current calendar month).
     """
     teamUsage(teamId: ID!, since: Time): UsageSummary!
+
+    """
+    Aggregate LLM proxy usage for the currently authenticated account,
+    since the given timestamp (default: start of the current calendar
+    month).
+    """
+    myUsage(since: Time): UsageSummary!
+
+    """
+    Aggregate LLM proxy usage for a single account, since the given
+    timestamp (default: start of the current calendar month). Callable by
+    the account itself, or by an OWNER/ADMIN of the account's team.
+    """
+    accountUsage(accountId: ID!, since: Time): UsageSummary!
+
+    """
+    Per-member usage breakdown for a team, since the given timestamp
+    (default: start of the current calendar month). Restricted to an
+    OWNER/ADMIN of that team, since it exposes individual members' usage
+    and spend.
+    """
+    teamUsageByAccount(teamId: ID!, since: Time): [AccountUsage!]!
+
+    """
+    Usage broken down by provider/model for a team, since the given
+    timestamp (default: start of the current calendar month). Open to any
+    member of the team, like teamUsage.
+    """
+    teamUsageByModel(teamId: ID!, since: Time): [ModelUsage!]!
+
+    """
+    Daily usage trend for a team between since (default: start of the
+    current calendar month) and until (default: now), for charting. Open
+    to any member of the team, like teamUsage.
+    """
+    teamUsageDaily(teamId: ID!, since: Time, until: Time): [DailyUsage!]!
+
+    """
+    Platform-wide LLM proxy usage across every team and account, since the
+    given timestamp (default: start of the current calendar month).
+    OWNER/ADMIN only.
+    """
+    globalUsage(since: Time): UsageSummary!
+
+    """
+    Platform-wide LLM proxy usage broken down by team, since the given
+    timestamp (default: start of the current calendar month). OWNER/ADMIN
+    only.
+    """
+    globalUsageByTeam(since: Time): [TeamUsage!]!
 }
 `, BuiltIn: false},
 }

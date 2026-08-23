@@ -35,6 +35,11 @@ func (r *mutationResolver) UpdateTeamQuota(ctx context.Context, teamID string, m
 	return r.updateTeamQuota(ctx, teamID, monthlyTokenBudget, clearMonthlyTokenBudget)
 }
 
+// UpdateTeamPolicy is the resolver for the updateTeamPolicy field.
+func (r *mutationResolver) UpdateTeamPolicy(ctx context.Context, teamID string, blockedPatterns []string, denyOnSensitiveData bool) (*model.Team, error) {
+	return r.updateTeamPolicy(ctx, teamID, blockedPatterns, denyOnSensitiveData)
+}
+
 // Teams is the resolver for the teams field.
 func (r *queryResolver) Teams(ctx context.Context, limit *int, offset *int) (*model.TeamConnection, error) {
 	return r.listTeams(ctx, limit, offset)

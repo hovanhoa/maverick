@@ -15,7 +15,7 @@ func TestAPIKeyResolver_CreateApiKey_Self_Allowed(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	account, err := mr.CreateAccount(ctx, "self-key@example.com", "selfkey", nil, nil)
+	account, err := createTestAccount(mr, ctx, "self-key@example.com", "selfkey", nil, nil)
 	require.NoError(t, err)
 
 	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember, "")
@@ -34,10 +34,10 @@ func TestAPIKeyResolver_CreateApiKey_ForOther_DeniedForMember(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "other-key-target@example.com", "otherkeytarget", nil, nil)
+	target, err := createTestAccount(mr, ctx, "other-key-target@example.com", "otherkeytarget", nil, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "other-key-caller@example.com", "otherkeycaller", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "other-key-caller@example.com", "otherkeycaller", nil, nil)
 	require.NoError(t, err)
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 
@@ -52,10 +52,10 @@ func TestAPIKeyResolver_CreateApiKey_ForOther_AllowedForAdmin(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "admin-key-target@example.com", "adminkeytarget", nil, nil)
+	target, err := createTestAccount(mr, ctx, "admin-key-target@example.com", "adminkeytarget", nil, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "admin-key-caller@example.com", "adminkeycaller", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "admin-key-caller@example.com", "adminkeycaller", nil, nil)
 	require.NoError(t, err)
 	adminCtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, "")
 
@@ -78,10 +78,10 @@ func TestAPIKeyResolver_CreateApiKey_ForOther_DeniedForAdminOfAnotherTeam(t *tes
 	teamB, err := mr.CreateTeam(ctx, "apikey-team-b")
 	require.NoError(t, err)
 
-	target, err := mr.CreateAccount(ctx, "target-key-in-b@example.com", "targetkeyinb", &teamB.ID, nil)
+	target, err := createTestAccount(mr, ctx, "target-key-in-b@example.com", "targetkeyinb", &teamB.ID, nil)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "admin-of-a-for-key@example.com", "adminofaforkey", &teamA.ID, nil)
+	caller, err := createTestAccount(mr, ctx, "admin-of-a-for-key@example.com", "adminofaforkey", &teamA.ID, nil)
 	require.NoError(t, err)
 	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
 
@@ -97,7 +97,7 @@ func TestAPIKeyResolver_ApiKeys_ListsMetadataOnly(t *testing.T) {
 	mr := &mutationResolver{r}
 	qr := &queryResolver{r}
 
-	account, err := mr.CreateAccount(ctx, "list-keys@example.com", "listkeys", nil, nil)
+	account, err := createTestAccount(mr, ctx, "list-keys@example.com", "listkeys", nil, nil)
 	require.NoError(t, err)
 
 	_, err = mr.CreateAPIKey(ctx, account.ID)
@@ -116,7 +116,7 @@ func TestAPIKeyResolver_RevokeApiKey_Self_Allowed(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	account, err := mr.CreateAccount(ctx, "revoke-self@example.com", "revokeself", nil, nil)
+	account, err := createTestAccount(mr, ctx, "revoke-self@example.com", "revokeself", nil, nil)
 	require.NoError(t, err)
 	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember, "")
 
@@ -134,12 +134,12 @@ func TestAPIKeyResolver_RevokeApiKey_ForOther_DeniedForMember(t *testing.T) {
 	r, ctx := testResolver(t)
 	mr := &mutationResolver{r}
 
-	target, err := mr.CreateAccount(ctx, "revoke-target@example.com", "revoketarget", nil, nil)
+	target, err := createTestAccount(mr, ctx, "revoke-target@example.com", "revoketarget", nil, nil)
 	require.NoError(t, err)
 	secret, err := mr.CreateAPIKey(ctx, target.ID)
 	require.NoError(t, err)
 
-	caller, err := mr.CreateAccount(ctx, "revoke-caller@example.com", "revokecaller", nil, nil)
+	caller, err := createTestAccount(mr, ctx, "revoke-caller@example.com", "revokecaller", nil, nil)
 	require.NoError(t, err)
 	memberCtx := asPrincipal(ctx, caller.ID, model.RoleMember, "")
 

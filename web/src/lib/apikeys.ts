@@ -1,6 +1,6 @@
 import { gql, type ApiKey, type ApiKeySecret } from './api';
 
-const API_KEY_FIELDS = `id accountId prefix createdAt revokedAt`;
+const API_KEY_FIELDS = `id accountId prefix createdAt revokedAt lastUsedAt`;
 
 export async function listApiKeys(accountId: string): Promise<ApiKey[]> {
   const data = await gql<{ apiKeys: ApiKey[] }>(
