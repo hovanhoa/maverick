@@ -55,14 +55,14 @@ function RequestLogRow({ entry }: { entry: RequestLog }) {
               )}
               <div>
                 <p className="mb-1 text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">Request</p>
-                <pre className="max-h-64 overflow-auto rounded-md bg-neutral-900 p-3 text-xs text-neutral-100">
+                <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-neutral-900 p-3 text-xs text-neutral-100">
                   {formatJSON(entry.requestBody)}
                 </pre>
               </div>
               {entry.responseBody ? (
                 <div>
                   <p className="mb-1 text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">Response</p>
-                  <pre className="max-h-64 overflow-auto rounded-md bg-neutral-900 p-3 text-xs text-neutral-100">
+                  <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-neutral-900 p-3 text-xs text-neutral-100">
                     {formatJSON(entry.responseBody)}
                   </pre>
                 </div>
