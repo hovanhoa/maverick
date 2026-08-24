@@ -7,13 +7,24 @@ package policy
 const defaultMaxPromptChars = 100_000
 
 // DefaultChain returns the gateway's baseline policy chain: a prompt size
-// guardrail, sensitive-data redaction, and an (empty by default) blocked
-// keyword list a deployment can extend.
+// guardrail, an (empty by default) blocked keyword list a deployment can
+// extend, a prompt-injection / jailbreak check, a hard block on known
+// credential formats, redaction of softer PII (e.g. credit-card-looking
+// numbers, validated via Luhn), and finally a high-entropy-string backstop
+// for credentials that don't match any known format. CredentialLeak runs
+// ahead of SensitiveDataRedaction so a high-confidence credential match
+// denies the request outright instead of being redacted and still
+// forwarded upstream; HighEntropySecret runs last, as the most speculative
+// and priciest check, and only ever sees what the earlier rules didn't
+// already catch.
 func DefaultChain(blockedPatterns ...string) *Chain {
 	return NewChain(
 		MaxPromptLength{MaxChars: defaultMaxPromptChars},
 		BlockedPatterns{Patterns: blockedPatterns},
+		PromptInjection{},
+		CredentialLeak{},
 		SensitiveDataRedaction{},
+		HighEntropySecret{},
 	)
 }
 
