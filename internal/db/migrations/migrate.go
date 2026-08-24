@@ -190,6 +190,11 @@ func GetMigrations() []MigrationEntry {
 			Name:      "Add unique index on account username",
 			Migration: NewSQLFileMigration("00007_account_username_unique"),
 		},
+		{
+			Index:     8,
+			Name:      "Add api_key monthly_token_budget column",
+			Migration: NewSQLFileMigration("00008_api_key_quota"),
+		},
 	}
 }
 

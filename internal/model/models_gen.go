@@ -86,6 +86,11 @@ type APIKey struct {
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
 	// Timestamp this key last successfully authenticated a request, if ever
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	// Maximum total tokens (prompt + completion) this specific key may use per
+	// calendar month via the LLM proxy, on top of whatever budget its account
+	// and team may also have. Null means unlimited - no budget has been
+	// configured yet.
+	MonthlyTokenBudget *int `json:"monthlyTokenBudget,omitempty"`
 }
 
 // ApiKeySecret is returned only once, at creation time. The key cannot be

@@ -53,6 +53,36 @@ func TestAuthorizer_GetPrincipalFromToken_ValidKey(t *testing.T) {
 	assert.Equal(t, account.Email, principal.Email)
 	assert.True(t, principal.HasRole(model.RoleAdmin))
 	assert.False(t, principal.HasRole(model.RoleOwner))
+
+	keyID, ok := model.APIKeyIDFromPrincipal(principal)
+	require.True(t, ok, "a principal resolved from an API key must carry that key's id, for per-key quota enforcement")
+	assert.Equal(t, secret.APIKey.ID, keyID)
+}
+
+// TestAuthorizer_GetPrincipalFromToken_SessionJWTHasNoAPIKeyID documents
+// that a session JWT - unlike an API key - isn't tied to any one credential
+// row, so APIKeyIDFromPrincipal must report false for it (per-key quota
+// only applies to calls actually authenticated by an API key).
+func TestAuthorizer_GetPrincipalFromToken_SessionJWTHasNoAPIKeyID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+	tokens := newTestTokenService(t)
+	authorizer := New(Dependencies{Database: database, Tokens: tokens})
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "nokeyid@example.com", Username: "nokeyiduser"})
+	require.NoError(t, err)
+
+	jwt, err := tokens.GenerateJWT(ctx, account.ID, account.Email, account.Username, "", "", model.IdentityAccount)
+	require.NoError(t, err)
+
+	principal, err := authorizer.GetPrincipalFromToken(ctx, jwt.Token, "")
+	require.NoError(t, err)
+	require.NotNil(t, principal)
+
+	_, ok := model.APIKeyIDFromPrincipal(principal)
+	assert.False(t, ok)
 }
 
 func TestAuthorizer_GetPrincipalFromToken_InvalidKey(t *testing.T) {

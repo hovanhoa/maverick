@@ -52,8 +52,8 @@ func (db *Database) CreateAPIKey(ctx context.Context, accountID string) (*model.
 
 	query, args, err := db.GetSQLClient().Builder().
 		Insert("api_key").
-		Columns("id", "account_id", "key_hash", "prefix", "created_at").
-		Values(apiKey.ID, apiKey.AccountID, HashAPIKey(plaintext), apiKey.Prefix, apiKey.CreatedAt).
+		Columns("id", "account_id", "key_hash", "prefix", "created_at", "monthly_token_budget").
+		Values(apiKey.ID, apiKey.AccountID, HashAPIKey(plaintext), apiKey.Prefix, apiKey.CreatedAt, apiKey.MonthlyTokenBudget).
 		ToSql()
 	if err != nil {
 		return nil, errors.Wrap(err, "build create api_key query")
@@ -69,39 +69,49 @@ func (db *Database) CreateAPIKey(ctx context.Context, accountID string) (*model.
 	}, nil
 }
 
-// GetAccountByAPIKeyHash returns the account associated with a non-revoked
-// API key matching the given hash, and records this call as that key's most
-// recent use. A nil account and nil error means no matching, non-revoked key
-// was found.
-func (db *Database) GetAccountByAPIKeyHash(ctx context.Context, hash string) (*model.Account, error) {
+// GetAccountByAPIKeyHash returns the account and the specific API key
+// matching the given non-revoked hash, and records this call as that key's
+// most recent use. A nil account and nil error means no matching,
+// non-revoked key was found. The key is returned alongside the account
+// (rather than requiring a second lookup) so callers can enforce a per-key
+// quota against the exact credential that authenticated the request.
+func (db *Database) GetAccountByAPIKeyHash(ctx context.Context, hash string) (*model.Account, *model.APIKey, error) {
 	query, args, err := db.GetSQLClient().Builder().
 		Update("api_key").
 		Set("last_used_at", time.Now().UTC()).
 		Where(sq.Eq{"key_hash": hash}).
 		Where(sq.Eq{"revoked_at": nil}).
-		Suffix("RETURNING account_id").
+		Suffix("RETURNING id, account_id, monthly_token_budget").
 		ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "build touch api_key by hash query")
+		return nil, nil, errors.Wrap(err, "build touch api_key by hash query")
 	}
 
 	rows, err := db.GetSQLClient().Runner().Query(ctx, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+		return nil, nil, errors.Wrap(err, "error executing %s [args: %v]", query, args)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	var accountID string
-	if err := rows.Scan(&accountID); err != nil {
-		return nil, errors.Wrap(err, "error scanning row")
+	apiKey := model.APIKey{}
+	if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.MonthlyTokenBudget); err != nil {
+		return nil, nil, errors.Wrap(err, "error scanning row")
 	}
 	rows.Close()
 
-	return db.GetAccountByID(ctx, accountID)
+	account, err := db.GetAccountByID(ctx, apiKey.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if account == nil {
+		return nil, nil, nil
+	}
+
+	return account, &apiKey, nil
 }
 
 // ListAPIKeysByAccount returns metadata for every API key issued to an
@@ -109,7 +119,7 @@ func (db *Database) GetAccountByAPIKeyHash(ctx context.Context, hash string) (*m
 // returned since they are not persisted.
 func (db *Database) ListAPIKeysByAccount(ctx context.Context, accountID string) ([]model.APIKey, error) {
 	query, args, err := db.GetSQLClient().Builder().
-		Select("id", "account_id", "prefix", "created_at", "revoked_at", "last_used_at").
+		Select("id", "account_id", "prefix", "created_at", "revoked_at", "last_used_at", "monthly_token_budget").
 		From("api_key").
 		Where(sq.Eq{"account_id": accountID}).
 		OrderBy("created_at DESC", "id DESC").
@@ -127,7 +137,7 @@ func (db *Database) ListAPIKeysByAccount(ctx context.Context, accountID string) 
 	var apiKeys []model.APIKey
 	for rows.Next() {
 		var apiKey model.APIKey
-		if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt, &apiKey.LastUsedAt); err != nil {
+		if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt, &apiKey.LastUsedAt, &apiKey.MonthlyTokenBudget); err != nil {
 			return nil, errors.Wrap(err, "error scanning row")
 		}
 		apiKeys = append(apiKeys, apiKey)
@@ -140,7 +150,7 @@ func (db *Database) ListAPIKeysByAccount(ctx context.Context, accountID string) 
 // means not found.
 func (db *Database) GetAPIKeyByID(ctx context.Context, id string) (*model.APIKey, error) {
 	query, args, err := db.GetSQLClient().Builder().
-		Select("id", "account_id", "prefix", "created_at", "revoked_at", "last_used_at").
+		Select("id", "account_id", "prefix", "created_at", "revoked_at", "last_used_at", "monthly_token_budget").
 		From("api_key").
 		Where(sq.Eq{"id": id}).
 		Limit(1).
@@ -160,11 +170,57 @@ func (db *Database) GetAPIKeyByID(ctx context.Context, id string) (*model.APIKey
 	}
 
 	var apiKey model.APIKey
-	if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt, &apiKey.LastUsedAt); err != nil {
+	if err := rows.Scan(&apiKey.ID, &apiKey.AccountID, &apiKey.Prefix, &apiKey.CreatedAt, &apiKey.RevokedAt, &apiKey.LastUsedAt, &apiKey.MonthlyTokenBudget); err != nil {
 		return nil, errors.Wrap(err, "error scanning row")
 	}
 
 	return &apiKey, nil
+}
+
+// UpdateAPIKeyQuota sets or clears an API key's monthly token budget. At
+// least one of monthlyTokenBudget or clearMonthlyTokenBudget must be
+// provided.
+func (db *Database) UpdateAPIKeyQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.APIKey, error) {
+	clear := clearMonthlyTokenBudget != nil && *clearMonthlyTokenBudget
+	if monthlyTokenBudget == nil && !clear {
+		return nil, errors.New("at least one of monthlyTokenBudget or clearMonthlyTokenBudget must be provided")
+	}
+	if clear && monthlyTokenBudget != nil {
+		return nil, errors.New("cannot set monthlyTokenBudget and clearMonthlyTokenBudget in the same request")
+	}
+
+	existing, err := db.GetAPIKeyByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("api key not found")
+	}
+
+	if clear {
+		existing.MonthlyTokenBudget = nil
+	} else {
+		existing.MonthlyTokenBudget = monthlyTokenBudget
+	}
+
+	query, args, err := db.GetSQLClient().Builder().
+		Update("api_key").
+		Set("monthly_token_budget", existing.MonthlyTokenBudget).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "build update api_key quota query")
+	}
+
+	tag, err := db.GetSQLClient().Runner().Exec(ctx, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, errors.New("api key not found")
+	}
+
+	return existing, nil
 }
 
 // RevokeAPIKey marks an API key as revoked. The bool is true when a

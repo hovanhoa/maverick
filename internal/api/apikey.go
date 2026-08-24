@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hovanhoa/llmgateway/internal/model"
+	"github.com/hovanhoa/llmgateway/pkg/core/errors"
 )
 
 // accountsTeamID looks up accountID's current team, for scoping an
@@ -59,4 +60,23 @@ func (r *Resolver) revokeAPIKey(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	return r.deps.Database.RevokeAPIKey(ctx, id)
+}
+
+// updateAPIKeyQuota sets or clears an API key's monthly token budget.
+// Unlike createApiKey/revokeApiKey, this is not self-service - like team and
+// account quotas, only an OWNER/ADMIN of the key's account's team may set
+// it, since a quota is a governance control, not something a member should
+// adjust for themselves.
+func (r *Resolver) updateAPIKeyQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.APIKey, error) {
+	apiKey, err := r.deps.Database.GetAPIKeyByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey == nil {
+		return nil, errors.New("api key not found")
+	}
+	if err := requireOwnerOrAdminOfAccountsTeam(ctx, r, apiKey.AccountID); err != nil {
+		return nil, err
+	}
+	return r.deps.Database.UpdateAPIKeyQuota(ctx, id, monthlyTokenBudget, clearMonthlyTokenBudget)
 }

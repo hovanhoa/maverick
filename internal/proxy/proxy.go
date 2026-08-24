@@ -1,10 +1,10 @@
 // Package proxy implements the business logic behind the gateway's
 // OpenAI-compatible LLM proxy endpoint: request validation, provider
 // routing (by a "provider/model" prefix on the request's model field),
-// the Phase 2 per-team model allowlist, Phase 4's per-team and per-account
-// quota and policy checks, and dispatch to the resolved provider.Provider,
-// with a retry wrapper on non-streaming calls and usage metering on
-// completion.
+// the Phase 2 per-team model allowlist, Phase 4's per-team/per-account/
+// per-key quota and policy checks, and dispatch to the resolved
+// provider.Provider, with a retry wrapper on non-streaming calls and usage
+// metering on completion.
 //
 // This package is deliberately independent of the HTTP framework -
 // internal/http wires it into an actual route.
@@ -34,8 +34,8 @@ import (
 const maxRetries = 2
 
 // Dependencies of the Handler. Quota and Policy are optional: a nil Quota
-// disables quota enforcement entirely (equivalent to every team and account
-// being unlimited), and a nil Policy skips content policy checks.
+// disables quota enforcement entirely (equivalent to every team, account,
+// and key being unlimited), and a nil Policy skips content policy checks.
 type Dependencies struct {
 	Database  *db.Database
 	Providers provider.Registry
@@ -76,24 +76,40 @@ func (h *Handler) resolve(modelField string) (provider.Provider, string, string,
 	return p, providerName, modelName, nil
 }
 
+// quotaSubject is one dimension a call's estimated token usage is reserved
+// against - a team, an account, or the specific API key used. kind drives
+// both the denial message and which Prometheus counter gets incremented on
+// exceeding it (see quotaDeniedMetric in metrics.go).
+type quotaSubject struct {
+	kind   string // "team", "account", or "key"
+	id     string
+	budget *int
+}
+
+// quotaReservation is a quotaSubject paired with the window Reserve made its
+// reservation against, so it can later be released or reconciled.
+type quotaReservation struct {
+	subject quotaSubject
+	window  string
+}
+
 // preparedCall is everything prepare resolved about a request, threaded
 // through to the caller so it can dispatch, meter, and reconcile quota
 // without re-deriving any of it.
 type preparedCall struct {
-	provider           provider.Provider
-	providerName       string
-	modelName          string
-	upstream           *openai.ChatCompletionRequest
-	team               *model.Team    // nil when the caller's account has no team
-	account            *model.Account // nil if the principal isn't backed by a real account (shouldn't happen outside tests)
-	estimate           int
-	quotaWindow        string // the window Reserve made its team reservation against; passed back to Reconcile unchanged
-	accountQuotaWindow string // same, for the account reservation
+	provider     provider.Provider
+	providerName string
+	modelName    string
+	upstream     *openai.ChatCompletionRequest
+	team         *model.Team    // nil when the caller's account has no team
+	account      *model.Account // nil if the principal isn't backed by a real account (shouldn't happen outside tests)
+	estimate     int
+	reservations []quotaReservation // one per quota dimension that was actually reserved (team/account/key, each optional)
 }
 
 // prepare validates the request, resolves its provider/model, checks the
-// caller's team allowlist and the team's and account's quotas, and runs the
-// policy chain - in that order, cheapest checks first, so an expensive
+// caller's team allowlist and the team's/account's/key's quotas, and runs
+// the policy chain - in that order, cheapest checks first, so an expensive
 // provider call is the last thing that can happen. It returns everything
 // ChatCompletion/StreamChatCompletion need to dispatch and later reconcile
 // quota/usage.
@@ -120,6 +136,14 @@ func (h *Handler) prepare(ctx context.Context, requestID string, principal *Prin
 		return nil, err
 	}
 
+	var apiKey *model.APIKey
+	if keyID, ok := model.APIKeyIDFromPrincipal(principal); ok {
+		apiKey, err = h.deps.Database.GetAPIKeyByID(ctx, keyID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if team != nil && !team.IsModelAllowed(providerName, modelName) {
 		return nil, provider.NewError(providerName, provider.ErrorKindPolicy,
 			fmt.Sprintf("model %q is not on this team's allowlist", providerName+"/"+modelName), nil)
@@ -128,33 +152,32 @@ func (h *Handler) prepare(ctx context.Context, requestID string, principal *Prin
 	upstream := *req
 	upstream.Model = modelName
 
-	estimate := quota.EstimateTokens(&upstream)
-	var quotaWindow string
-	if h.deps.Quota != nil && team != nil {
-		var err error
-		quotaWindow, err = h.deps.Quota.Reserve(ctx, team.ID, team.MonthlyTokenBudget, estimate)
-		if err != nil {
-			if err == quota.ErrExceeded {
-				quotaDeniedTotal.WithLabelValues(team.ID).Inc()
-				return nil, provider.NewError(providerName, provider.ErrorKindQuota,
-					"team monthly token budget exceeded", nil)
-			}
-			return nil, err
-		}
+	var subjects []quotaSubject
+	if team != nil {
+		subjects = append(subjects, quotaSubject{kind: "team", id: team.ID, budget: team.MonthlyTokenBudget})
+	}
+	if account != nil {
+		subjects = append(subjects, quotaSubject{kind: "account", id: account.ID, budget: account.MonthlyTokenBudget})
+	}
+	if apiKey != nil {
+		subjects = append(subjects, quotaSubject{kind: "key", id: apiKey.ID, budget: apiKey.MonthlyTokenBudget})
 	}
 
-	var accountQuotaWindow string
-	if h.deps.Quota != nil && account != nil {
-		var err error
-		accountQuotaWindow, err = h.deps.Quota.Reserve(ctx, account.ID, account.MonthlyTokenBudget, estimate)
-		if err != nil {
-			h.releaseQuota(ctx, team, quotaWindow, nil, "", estimate)
-			if err == quota.ErrExceeded {
-				accountQuotaDeniedTotal.WithLabelValues(account.ID).Inc()
-				return nil, provider.NewError(providerName, provider.ErrorKindQuota,
-					"account monthly token budget exceeded", nil)
+	estimate := quota.EstimateTokens(&upstream)
+	var reservations []quotaReservation
+	if h.deps.Quota != nil {
+		for _, subject := range subjects {
+			window, err := h.deps.Quota.Reserve(ctx, subject.id, subject.budget, estimate)
+			if err != nil {
+				h.releaseQuota(ctx, reservations, estimate)
+				if err == quota.ErrExceeded {
+					quotaDeniedMetric(subject.kind).WithLabelValues(subject.id).Inc()
+					return nil, provider.NewError(providerName, provider.ErrorKindQuota,
+						quotaExceededMessage(subject.kind), nil)
+				}
+				return nil, err
 			}
-			return nil, err
+			reservations = append(reservations, quotaReservation{subject: subject, window: window})
 		}
 	}
 
@@ -172,7 +195,7 @@ func (h *Handler) prepare(ctx context.Context, requestID string, principal *Prin
 			working, decision := policy.TeamChain(teamOverrides).Evaluate(&upstream)
 			h.logPolicyDecision(ctx, requestID, decision)
 			if decision.Action == policy.ActionDeny {
-				h.releaseQuota(ctx, team, quotaWindow, account, accountQuotaWindow, estimate)
+				h.releaseQuota(ctx, reservations, estimate)
 				return nil, provider.NewError(providerName, provider.ErrorKindPolicy, decision.Message, nil)
 			}
 			upstream = *working
@@ -183,22 +206,21 @@ func (h *Handler) prepare(ctx context.Context, requestID string, principal *Prin
 		redacted, decision := h.deps.Policy.Evaluate(&upstream)
 		h.logPolicyDecision(ctx, requestID, decision)
 		if decision.Action == policy.ActionDeny {
-			h.releaseQuota(ctx, team, quotaWindow, account, accountQuotaWindow, estimate)
+			h.releaseQuota(ctx, reservations, estimate)
 			return nil, provider.NewError(providerName, provider.ErrorKindPolicy, decision.Message, nil)
 		}
 		upstream = *redacted
 	}
 
 	return &preparedCall{
-		provider:           p,
-		providerName:       providerName,
-		modelName:          modelName,
-		upstream:           &upstream,
-		team:               team,
-		account:            account,
-		estimate:           estimate,
-		quotaWindow:        quotaWindow,
-		accountQuotaWindow: accountQuotaWindow,
+		provider:     p,
+		providerName: providerName,
+		modelName:    modelName,
+		upstream:     &upstream,
+		team:         team,
+		account:      account,
+		estimate:     estimate,
+		reservations: reservations,
 	}, nil
 }
 
@@ -304,19 +326,14 @@ func (h *Handler) recordRequestLog(ctx context.Context, requestID string, princi
 	}
 }
 
-// releaseQuota undoes a reservation for a call that never reached (or
-// never completed at) the provider. team and account are independent - a
-// nil team (or window) simply skips the team release, and likewise for
-// account, so a caller can release just the reservation(s) it actually made.
-func (h *Handler) releaseQuota(ctx context.Context, team *model.Team, teamWindow string, account *model.Account, accountWindow string, estimate int) {
+// releaseQuota undoes every reservation in reservations, for a call that
+// never reached (or never completed at) the provider.
+func (h *Handler) releaseQuota(ctx context.Context, reservations []quotaReservation, estimate int) {
 	if h.deps.Quota == nil {
 		return
 	}
-	if team != nil {
-		_ = h.deps.Quota.Reconcile(ctx, teamWindow, team.MonthlyTokenBudget, estimate, 0)
-	}
-	if account != nil {
-		_ = h.deps.Quota.Reconcile(ctx, accountWindow, account.MonthlyTokenBudget, estimate, 0)
+	for _, r := range reservations {
+		_ = h.deps.Quota.Reconcile(ctx, r.window, r.subject.budget, estimate, 0)
 	}
 }
 
@@ -327,11 +344,8 @@ func (h *Handler) releaseQuota(ctx context.Context, team *model.Team, teamWindow
 // that can reliably report it over the stream (see StreamChatCompletion).
 func (h *Handler) recordUsage(ctx context.Context, requestID string, principal *Principal, call *preparedCall, usg openai.Usage) {
 	if h.deps.Quota != nil {
-		if call.team != nil {
-			_ = h.deps.Quota.Reconcile(ctx, call.quotaWindow, call.team.MonthlyTokenBudget, call.estimate, usg.TotalTokens)
-		}
-		if call.account != nil {
-			_ = h.deps.Quota.Reconcile(ctx, call.accountQuotaWindow, call.account.MonthlyTokenBudget, call.estimate, usg.TotalTokens)
+		for _, r := range call.reservations {
+			_ = h.deps.Quota.Reconcile(ctx, r.window, r.subject.budget, call.estimate, usg.TotalTokens)
 		}
 	}
 
@@ -370,7 +384,7 @@ func (h *Handler) ChatCompletion(ctx context.Context, requestID string, principa
 		return call.provider.ChatCompletion(ctx, call.upstream)
 	})
 	if err != nil {
-		h.releaseQuota(ctx, call.team, call.quotaWindow, call.account, call.accountQuotaWindow, call.estimate)
+		h.releaseQuota(ctx, call.reservations, call.estimate)
 		h.logCompletion(ctx, requestID, principal, call, start, req, nil, err)
 		return nil, err
 	}
@@ -402,7 +416,7 @@ func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, pr
 
 	upstream, err := call.provider.StreamChatCompletion(ctx, call.upstream)
 	if err != nil {
-		h.releaseQuota(ctx, call.team, call.quotaWindow, call.account, call.accountQuotaWindow, call.estimate)
+		h.releaseQuota(ctx, call.reservations, call.estimate)
 		h.logCompletion(ctx, requestID, principal, call, start, req, nil, err)
 		return nil, err
 	}
@@ -416,7 +430,7 @@ func (h *Handler) StreamChatCompletion(ctx context.Context, requestID string, pr
 		for ev := range upstream {
 			if ev.Err != nil {
 				streamErr = ev.Err
-				h.releaseQuota(ctx, call.team, call.quotaWindow, call.account, call.accountQuotaWindow, call.estimate)
+				h.releaseQuota(ctx, call.reservations, call.estimate)
 			}
 			if ev.Usage != nil {
 				finalUsage = ev.Usage

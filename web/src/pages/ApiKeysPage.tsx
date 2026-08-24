@@ -1,13 +1,14 @@
 import * as React from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { PlusIcon, NoSymbolIcon, ClipboardDocumentIcon, PlayIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, NoSymbolIcon, ClipboardDocumentIcon, PlayIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { ErrorAlert } from '../components/ui/Alert';
-import { Field, Select } from '../components/ui/Field';
+import { Field, Select, TextInput } from '../components/ui/Field';
+import { Modal } from '../components/ui/Modal';
 import { listAccounts } from '../lib/accounts';
-import { listApiKeys, createApiKey, revokeApiKey } from '../lib/apikeys';
+import { listApiKeys, createApiKey, revokeApiKey, updateApiKeyQuota } from '../lib/apikeys';
 import { useAuth } from '../lib/auth';
 import type { Account, ApiKey } from '../lib/api';
 
@@ -37,6 +38,7 @@ export function ApiKeysPage() {
   const [freshKey, setFreshKey] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [issuing, setIssuing] = React.useState(false);
+  const [editingQuota, setEditingQuota] = React.useState<ApiKey | null>(null);
 
   React.useEffect(() => {
     listAccounts()
@@ -187,6 +189,7 @@ export function ApiKeysPage() {
                   <th className="px-5 py-2.5 font-medium">Prefix</th>
                   <th className="px-5 py-2.5 font-medium">Created</th>
                   <th className="px-5 py-2.5 font-medium">Last used</th>
+                  <th className="px-5 py-2.5 font-medium">Budget</th>
                   <th className="px-5 py-2.5 font-medium">Status</th>
                   <th className="px-5 py-2.5" />
                 </tr>
@@ -199,21 +202,31 @@ export function ApiKeysPage() {
                     <td className="px-5 py-3 text-neutral-500 dark:text-neutral-400" title={key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : undefined}>
                       {formatLastUsed(key.lastUsedAt)}
                     </td>
+                    <td className="px-5 py-3 text-neutral-500 dark:text-neutral-400">
+                      {key.monthlyTokenBudget === null ? 'Unlimited' : <Badge tone="ok">{key.monthlyTokenBudget.toLocaleString()} tok/mo</Badge>}
+                    </td>
                     <td className="px-5 py-3">
                       {key.revokedAt ? <Badge tone="alert">Revoked</Badge> : <Badge tone="ok">Active</Badge>}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      {!key.revokedAt && (
-                        <Button variant="ghost" className="px-2 text-red-600 dark:text-red-400" title="Revoke" onClick={() => handleRevoke(key)}>
-                          <NoSymbolIcon className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <div className="flex justify-end gap-1">
+                        {isOwnerOrAdmin && !key.revokedAt && (
+                          <Button variant="ghost" className="px-2" title="Quota" onClick={() => setEditingQuota(key)}>
+                            <Cog6ToothIcon className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {!key.revokedAt && (
+                          <Button variant="ghost" className="px-2 text-red-600 dark:text-red-400" title="Revoke" onClick={() => handleRevoke(key)}>
+                            <NoSymbolIcon className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {!loading && keys.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-10 text-center text-sm text-neutral-400">
+                    <td colSpan={6} className="px-5 py-10 text-center text-sm text-neutral-400">
                       No keys issued yet.
                     </td>
                   </tr>
@@ -223,6 +236,82 @@ export function ApiKeysPage() {
           </div>
         </Card>
       )}
+
+      <ApiKeyQuotaModal
+        apiKey={editingQuota}
+        onClose={() => setEditingQuota(null)}
+        onSaved={() => {
+          setEditingQuota(null);
+          load(accountId);
+        }}
+      />
     </div>
+  );
+}
+
+function ApiKeyQuotaModal({ apiKey, onClose, onSaved }: { apiKey: ApiKey | null; onClose: () => void; onSaved: () => void }) {
+  const [unlimited, setUnlimited] = React.useState(true);
+  const [budget, setBudget] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!apiKey) return;
+    setUnlimited(apiKey.monthlyTokenBudget === null);
+    setBudget(apiKey.monthlyTokenBudget === null ? '' : String(apiKey.monthlyTokenBudget));
+    setError(null);
+  }, [apiKey]);
+
+  if (!apiKey) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!unlimited && (!budget.trim() || Number(budget) <= 0)) {
+      setError('Enter a positive token budget, or check "Unlimited".');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateApiKeyQuota(apiKey.id, unlimited ? null : Number(budget));
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Quota - ${apiKey.prefix}…`}>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Caps this one key's usage, on top of whatever budget its account and team may also have.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
+          <input
+            type="checkbox"
+            checked={unlimited}
+            onChange={(e) => setUnlimited(e.target.checked)}
+            className="h-4 w-4 rounded border-neutral-300 text-neutral-900 dark:border-white/20"
+          />
+          Unlimited
+        </label>
+        {!unlimited && (
+          <Field label="Tokens per calendar month (prompt + completion)">
+            <TextInput type="number" min={1} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="e.g. 100000" />
+          </Field>
+        )}
+        {error && <ErrorAlert message={error} />}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={saving}>
+            {saving ? 'Saving…' : 'Save quota'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

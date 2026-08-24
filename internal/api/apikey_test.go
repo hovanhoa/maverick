@@ -158,3 +158,94 @@ func TestAPIKeyResolver_RevokeApiKey_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+// TestAPIKeyResolver_UpdateApiKeyQuota_DeniedForSelf documents that, unlike
+// createApiKey/revokeApiKey, setting a key's quota is never self-service -
+// it's a governance control, so even the key's own account (as a plain
+// MEMBER) can't adjust it.
+func TestAPIKeyResolver_UpdateApiKeyQuota_DeniedForSelf(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	account, err := createTestAccount(mr, ctx, "quota-key-self@example.com", "quotakeyself", nil, nil)
+	require.NoError(t, err)
+	selfCtx := asPrincipal(ctx, account.ID, model.RoleMember, "")
+
+	secret, err := mr.CreateAPIKey(selfCtx, account.ID)
+	require.NoError(t, err)
+
+	budget := 1000
+	_, err = mr.UpdateAPIKeyQuota(selfCtx, secret.APIKey.ID, &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestAPIKeyResolver_UpdateApiKeyQuota_AllowedForAdmin(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "quota-key-team")
+	require.NoError(t, err)
+
+	target, err := createTestAccount(mr, ctx, "quota-key-target@example.com", "quotakeytarget", &team.ID, nil)
+	require.NoError(t, err)
+
+	admin, err := createTestAccount(mr, ctx, "quota-key-admin@example.com", "quotakeyadmin", &team.ID, nil)
+	require.NoError(t, err)
+	adminCtx := asPrincipal(ctx, admin.ID, model.RoleAdmin, team.ID)
+
+	secret, err := mr.CreateAPIKey(adminCtx, target.ID)
+	require.NoError(t, err)
+
+	budget := 2500
+	updated, err := mr.UpdateAPIKeyQuota(adminCtx, secret.APIKey.ID, &budget, nil)
+	require.NoError(t, err)
+	require.NotNil(t, updated.MonthlyTokenBudget)
+	assert.Equal(t, budget, *updated.MonthlyTokenBudget)
+}
+
+// TestAPIKeyResolver_UpdateApiKeyQuota_DeniedForAdminOfAnotherTeam mirrors
+// the create/revoke RBAC rule: an ADMIN of one team cannot set the quota of
+// a key belonging to an account on a different team.
+func TestAPIKeyResolver_UpdateApiKeyQuota_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "quota-key-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "quota-key-team-b")
+	require.NoError(t, err)
+
+	target, err := createTestAccount(mr, ctx, "target-key-in-b-for-quota@example.com", "targetkeyinbforquota", &teamB.ID, nil)
+	require.NoError(t, err)
+	targetCtx := asPrincipal(ctx, target.ID, model.RoleMember, teamB.ID)
+	secret, err := mr.CreateAPIKey(targetCtx, target.ID)
+	require.NoError(t, err)
+
+	caller, err := createTestAccount(mr, ctx, "admin-of-a-for-key-quota@example.com", "adminofaforkeyquota", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	budget := 1000
+	_, err = mr.UpdateAPIKeyQuota(adminOfACtx, secret.APIKey.ID, &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestAPIKeyResolver_UpdateApiKeyQuota_NotFound(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	budget := 1000
+	_, err := mr.UpdateAPIKeyQuota(ctx, "apikey_does_not_exist", &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}

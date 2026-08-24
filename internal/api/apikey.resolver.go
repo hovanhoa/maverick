@@ -20,6 +20,11 @@ func (r *mutationResolver) RevokeAPIKey(ctx context.Context, id string) (bool, e
 	return r.revokeAPIKey(ctx, id)
 }
 
+// UpdateAPIKeyQuota is the resolver for the updateApiKeyQuota field.
+func (r *mutationResolver) UpdateAPIKeyQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.APIKey, error) {
+	return r.updateAPIKeyQuota(ctx, id, monthlyTokenBudget, clearMonthlyTokenBudget)
+}
+
 // APIKeys is the resolver for the apiKeys field.
 func (r *queryResolver) APIKeys(ctx context.Context, accountID string) ([]model.APIKey, error) {
 	return r.listAPIKeys(ctx, accountID)

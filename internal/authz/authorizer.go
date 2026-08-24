@@ -58,14 +58,14 @@ func (a *Authorizer) GetPrincipalFromToken(ctx context.Context, token auth.Token
 // principalFromAPIKey hashes the token and looks it up against issued,
 // non-revoked API keys.
 func (a *Authorizer) principalFromAPIKey(ctx context.Context, token auth.TokenString) (*auth.Principal[model.Identity, model.Role], error) {
-	account, err := a.deps.Database.GetAccountByAPIKeyHash(ctx, db.HashAPIKey(string(token)))
+	account, apiKey, err := a.deps.Database.GetAccountByAPIKeyHash(ctx, db.HashAPIKey(string(token)))
 	if err != nil {
 		return nil, err
 	}
 	if account == nil {
 		return nil, errors.New("invalid or revoked API key")
 	}
-	return principalForAccount(account), nil
+	return model.WithAPIKeyID(principalForAccount(account), apiKey.ID), nil
 }
 
 // principalFromSessionToken verifies the token as a session JWT and

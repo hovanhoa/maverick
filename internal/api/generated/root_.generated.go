@@ -362,6 +362,14 @@ type ApiKey {
     Timestamp this key last successfully authenticated a request, if ever
     """
     lastUsedAt: Time
+
+    """
+    Maximum total tokens (prompt + completion) this specific key may use per
+    calendar month via the LLM proxy, on top of whatever budget its account
+    and team may also have. Null means unlimited - no budget has been
+    configured yet.
+    """
+    monthlyTokenBudget: Int
 }
 
 """
@@ -399,6 +407,14 @@ extend type Mutation {
     requires the caller to be an OWNER or ADMIN. Returns true if the key was revoked.
     """
     revokeApiKey(id: ID!): Boolean!
+
+    """
+    Set or clear an API key's monthly token budget. Provide monthlyTokenBudget
+    to set it, or clearMonthlyTokenBudget to remove the limit. Setting the
+    budget for a key belonging to another account requires the caller to be
+    an OWNER or ADMIN.
+    """
+    updateApiKeyQuota(id: ID!, monthlyTokenBudget: Int, clearMonthlyTokenBudget: Boolean): ApiKey!
 }
 `, BuiltIn: false},
 	{Name: "../../schema/requestlog.graphqls", Input: `"""

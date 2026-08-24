@@ -102,6 +102,8 @@ export interface ApiKey {
   createdAt: string;
   revokedAt: string | null;
   lastUsedAt: string | null;
+  /** Tokens per calendar month this key alone may use, on top of its account's and team's budgets. Null means unlimited. */
+  monthlyTokenBudget: number | null;
 }
 
 export interface ApiKeySecret {

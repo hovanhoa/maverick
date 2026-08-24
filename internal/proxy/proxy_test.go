@@ -570,6 +570,125 @@ func TestChatCompletion_AccountQuotaExceededReleasesTeamReservation(t *testing.T
 	assert.Zero(t, teamUsage, "the team's reservation must be released when the account's own budget denies the call")
 }
 
+// principalForAPIKey builds a Principal carrying the given key's id, the
+// way internal/authz.Authorizer does for a real request authenticated by
+// that key - required for the per-key quota dimension to engage at all.
+func principalForAPIKey(accountID string, orgID string, keyID string) *proxy.Principal {
+	return model.WithAPIKeyID(&proxy.Principal{ID: accountID, Type: model.IdentityAccount, OrgID: orgID}, keyID)
+}
+
+func TestChatCompletion_APIKeyQuotaExceededBlocksCallAndNeverReachesProvider(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "tinykeybudget@example.com", Username: "tinykeybudget"})
+	require.NoError(t, err)
+	secret, err := database.CreateAPIKey(ctx, account.ID)
+	require.NoError(t, err)
+	_, err = database.UpdateAPIKeyQuota(ctx, secret.APIKey.ID, intPtr(1), nil)
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := principalForAPIKey(account.ID, "", secret.APIKey.ID)
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+
+	status, body := proxy.ErrorResponseFor(err)
+	assert.Equal(t, 429, status)
+	assert.Equal(t, openai.ErrorTypeRateLimit, body.Error.Type)
+	assert.Equal(t, 0, fake.calls, "a quota-exceeded call must never reach the provider")
+}
+
+func TestChatCompletion_APIKeyQuotaReconciledToActualUsageAfterSuccess(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "roomykeybudget@example.com", Username: "roomykeybudget"})
+	require.NoError(t, err)
+	secret, err := database.CreateAPIKey(ctx, account.ID)
+	require.NoError(t, err)
+	_, err = database.UpdateAPIKeyQuota(ctx, secret.APIKey.ID, intPtr(100_000), nil)
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic", respUsage: openai.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := principalForAPIKey(account.ID, "", secret.APIKey.ID)
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.NoError(t, err)
+
+	usage, err := checker.Usage(ctx, secret.APIKey.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 15, usage, "the reservation's rough estimate must be reconciled down to the provider's actual usage")
+}
+
+// TestChatCompletion_APIKeyQuotaExceededReleasesTeamAndAccountReservations
+// verifies that when the team's and account's budgets both have room but
+// the specific key used denies the call, the reservations already made for
+// the other two dimensions are rolled back rather than left charged for a
+// call that never happened.
+func TestChatCompletion_APIKeyQuotaExceededReleasesTeamAndAccountReservations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Roomy Team", MonthlyTokenBudget: intPtr(100_000)})
+	require.NoError(t, err)
+	account, err := database.CreateAccount(ctx, &model.Account{
+		Email: "roomymember@example.com", Username: "roomymember", TeamID: &team.ID, MonthlyTokenBudget: intPtr(100_000),
+	})
+	require.NoError(t, err)
+	secret, err := database.CreateAPIKey(ctx, account.ID)
+	require.NoError(t, err)
+	_, err = database.UpdateAPIKeyQuota(ctx, secret.APIKey.ID, intPtr(1), nil)
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := principalForAPIKey(account.ID, team.ID, secret.APIKey.ID)
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+	assert.Equal(t, 0, fake.calls)
+
+	teamUsage, err := checker.Usage(ctx, team.ID)
+	require.NoError(t, err)
+	assert.Zero(t, teamUsage, "the team's reservation must be released when the key's own budget denies the call")
+
+	accountUsage, err := checker.Usage(ctx, account.ID)
+	require.NoError(t, err)
+	assert.Zero(t, accountUsage, "the account's reservation must be released when the key's own budget denies the call")
+}
+
+// TestChatCompletion_WithoutAPIKeyIDOnPrincipal_SkipsKeyQuota documents that
+// a principal not tied to any API key (e.g. a session-JWT-authenticated
+// call, or the fake principals most other tests in this file use) simply
+// skips the per-key quota dimension rather than erroring.
+func TestChatCompletion_WithoutAPIKeyIDOnPrincipal_SkipsKeyQuota(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := &proxy.Principal{ID: "account_1", Type: model.IdentityAccount}
+	_, err := h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.NoError(t, err)
+}
+
 func TestChatCompletion_PolicyDenyBlocksCallAndReleasesQuotaReservation(t *testing.T) {
 	t.Parallel()
 

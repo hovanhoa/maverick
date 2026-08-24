@@ -288,6 +288,47 @@ func (ec *executionContext) fieldContext_ApiKey_lastUsedAt(_ context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _ApiKey_monthlyTokenBudget(ctx context.Context, field graphql.CollectedField, obj *model.APIKey) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ApiKey_monthlyTokenBudget(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MonthlyTokenBudget, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int)
+	fc.Result = res
+	return ec.marshalOInt2ᚖint(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ApiKey_monthlyTokenBudget(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ApiKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ApiKeySecret_apiKey(ctx context.Context, field graphql.CollectedField, obj *model.APIKeySecret) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_ApiKeySecret_apiKey(ctx, field)
 	if err != nil {
@@ -339,6 +380,8 @@ func (ec *executionContext) fieldContext_ApiKeySecret_apiKey(_ context.Context, 
 				return ec.fieldContext_ApiKey_revokedAt(ctx, field)
 			case "lastUsedAt":
 				return ec.fieldContext_ApiKey_lastUsedAt(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_ApiKey_monthlyTokenBudget(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ApiKey", field.Name)
 		},
@@ -437,6 +480,8 @@ func (ec *executionContext) _ApiKey(ctx context.Context, sel ast.SelectionSet, o
 			out.Values[i] = ec._ApiKey_revokedAt(ctx, field, obj)
 		case "lastUsedAt":
 			out.Values[i] = ec._ApiKey_lastUsedAt(ctx, field, obj)
+		case "monthlyTokenBudget":
+			out.Values[i] = ec._ApiKey_monthlyTokenBudget(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -554,6 +599,16 @@ func (ec *executionContext) marshalNApiKey2ᚕgithubᚗcomᚋhovanhoaᚋllmgatew
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNApiKey2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAPIKey(ctx context.Context, sel ast.SelectionSet, v *model.APIKey) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ApiKey(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNApiKeySecret2githubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAPIKeySecret(ctx context.Context, sel ast.SelectionSet, v model.APIKeySecret) graphql.Marshaler {
