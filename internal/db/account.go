@@ -148,6 +148,59 @@ func (db *Database) UpdateAccount(ctx context.Context, id string, email *string,
 	return existing, nil
 }
 
+// UpdateAccountQuota sets or clears an account's monthly token budget. At
+// least one of monthlyTokenBudget or clearMonthlyTokenBudget must be
+// provided.
+func (db *Database) UpdateAccountQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Account, error) {
+	clear := clearMonthlyTokenBudget != nil && *clearMonthlyTokenBudget
+	if monthlyTokenBudget == nil && !clear {
+		return nil, errors.New("at least one of monthlyTokenBudget or clearMonthlyTokenBudget must be provided")
+	}
+	if clear && monthlyTokenBudget != nil {
+		return nil, errors.New("cannot set monthlyTokenBudget and clearMonthlyTokenBudget in the same request")
+	}
+
+	existing, err := db.GetAccountByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("account not found")
+	}
+
+	if clear {
+		existing.MonthlyTokenBudget = nil
+	} else {
+		existing.MonthlyTokenBudget = monthlyTokenBudget
+	}
+	existing.UpdatedAt = time.Now().UTC()
+
+	payload, err := json.Marshal(existing)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal account payload")
+	}
+
+	query, args, err := db.GetSQLClient().Builder().
+		Update("account").
+		Set("account", payload).
+		Set("updated_at", existing.UpdatedAt).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "build update account query")
+	}
+
+	tag, err := db.GetSQLClient().Runner().Exec(ctx, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "error executing %s [args: %v]", query, args)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, errors.New("account not found")
+	}
+
+	return existing, nil
+}
+
 // DeleteAccount removes an account by id. The bool is true when a row was deleted.
 func (db *Database) DeleteAccount(ctx context.Context, id string) (bool, error) {
 	query, args, err := db.GetSQLClient().Builder().

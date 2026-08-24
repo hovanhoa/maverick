@@ -24,6 +24,7 @@ type MutationResolver interface {
 	UpdateAccount(ctx context.Context, id string, email *string, username *string, name *string, teamID *string, clearTeamID *bool, role *model.Role) (*model.Account, error)
 	DeleteAccount(ctx context.Context, id string) (bool, error)
 	ResetAccountPassword(ctx context.Context, id string) (*model.AccountSecret, error)
+	UpdateAccountQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Account, error)
 	CreateAPIKey(ctx context.Context, accountID string) (*model.APIKeySecret, error)
 	RevokeAPIKey(ctx context.Context, id string) (bool, error)
 	CreateTeam(ctx context.Context, name string) (*model.Team, error)
@@ -320,6 +321,80 @@ func (ec *executionContext) field_Mutation_revokeApiKey_argsID(
 	}
 
 	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateAccountQuota_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_updateAccountQuota_argsID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := ec.field_Mutation_updateAccountQuota_argsMonthlyTokenBudget(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["monthlyTokenBudget"] = arg1
+	arg2, err := ec.field_Mutation_updateAccountQuota_argsClearMonthlyTokenBudget(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["clearMonthlyTokenBudget"] = arg2
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_updateAccountQuota_argsID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["id"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+	if tmp, ok := rawArgs["id"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateAccountQuota_argsMonthlyTokenBudget(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int, error) {
+	if _, ok := rawArgs["monthlyTokenBudget"]; !ok {
+		var zeroVal *int
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("monthlyTokenBudget"))
+	if tmp, ok := rawArgs["monthlyTokenBudget"]; ok {
+		return ec.unmarshalOInt2ᚖint(ctx, tmp)
+	}
+
+	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateAccountQuota_argsClearMonthlyTokenBudget(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*bool, error) {
+	if _, ok := rawArgs["clearMonthlyTokenBudget"]; !ok {
+		var zeroVal *bool
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("clearMonthlyTokenBudget"))
+	if tmp, ok := rawArgs["clearMonthlyTokenBudget"]; ok {
+		return ec.unmarshalOBoolean2ᚖbool(ctx, tmp)
+	}
+
+	var zeroVal *bool
 	return zeroVal, nil
 }
 
@@ -1854,6 +1929,47 @@ func (ec *executionContext) fieldContext_Account_role(_ context.Context, field g
 	return fc, nil
 }
 
+func (ec *executionContext) _Account_monthlyTokenBudget(ctx context.Context, field graphql.CollectedField, obj *model.Account) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MonthlyTokenBudget, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int)
+	fc.Result = res
+	return ec.marshalOInt2ᚖint(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Account_monthlyTokenBudget(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Account",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Account_createdAt(ctx context.Context, field graphql.CollectedField, obj *model.Account) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Account_createdAt(ctx, field)
 	if err != nil {
@@ -1993,6 +2109,8 @@ func (ec *executionContext) fieldContext_AccountConnection_items(_ context.Conte
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
 				return ec.fieldContext_Account_role(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -2143,6 +2261,8 @@ func (ec *executionContext) fieldContext_AccountSecret_account(_ context.Context
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
 				return ec.fieldContext_Account_role(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -2310,6 +2430,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAccount(ctx context.Cont
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
 				return ec.fieldContext_Account_role(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -2442,6 +2564,81 @@ func (ec *executionContext) fieldContext_Mutation_resetAccountPassword(ctx conte
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_resetAccountPassword_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateAccountQuota(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_updateAccountQuota(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().UpdateAccountQuota(rctx, fc.Args["id"].(string), fc.Args["monthlyTokenBudget"].(*int), fc.Args["clearMonthlyTokenBudget"].(*bool))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Account)
+	fc.Result = res
+	return ec.marshalNAccount2ᚖgithubᚗcomᚋhovanhoaᚋllmgatewayᚋinternalᚋmodelᚐAccount(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateAccountQuota(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Account_id(ctx, field)
+			case "email":
+				return ec.fieldContext_Account_email(ctx, field)
+			case "username":
+				return ec.fieldContext_Account_username(ctx, field)
+			case "name":
+				return ec.fieldContext_Account_name(ctx, field)
+			case "teamId":
+				return ec.fieldContext_Account_teamId(ctx, field)
+			case "role":
+				return ec.fieldContext_Account_role(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Account_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Account_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateAccountQuota_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3085,6 +3282,8 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
 				return ec.fieldContext_Account_role(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -3158,6 +3357,8 @@ func (ec *executionContext) fieldContext_Query_me(_ context.Context, field graph
 				return ec.fieldContext_Account_teamId(ctx, field)
 			case "role":
 				return ec.fieldContext_Account_role(ctx, field)
+			case "monthlyTokenBudget":
+				return ec.fieldContext_Account_monthlyTokenBudget(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "updatedAt":
@@ -4335,6 +4536,8 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "monthlyTokenBudget":
+			out.Values[i] = ec._Account_monthlyTokenBudget(ctx, field, obj)
 		case "createdAt":
 			out.Values[i] = ec._Account_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -4504,6 +4707,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "resetAccountPassword":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_resetAccountPassword(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateAccountQuota":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateAccountQuota(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++

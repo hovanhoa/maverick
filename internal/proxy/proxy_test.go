@@ -456,6 +456,120 @@ func TestChatCompletion_QuotaReconciledToActualUsageAfterSuccess(t *testing.T) {
 	assert.Equal(t, 15, usage, "the reservation's rough estimate must be reconciled down to the provider's actual usage")
 }
 
+func TestChatCompletion_AccountQuotaExceededBlocksCallAndNeverReachesProvider(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{
+		Email: "tinyaccountbudget@example.com", Username: "tinyaccountbudget", MonthlyTokenBudget: intPtr(1),
+	})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+
+	status, body := proxy.ErrorResponseFor(err)
+	assert.Equal(t, 429, status)
+	assert.Equal(t, openai.ErrorTypeRateLimit, body.Error.Type)
+	assert.Equal(t, 0, fake.calls, "a quota-exceeded call must never reach the provider")
+}
+
+func TestChatCompletion_AccountQuotaReconciledToActualUsageAfterSuccess(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{
+		Email: "roomyaccountbudget@example.com", Username: "roomyaccountbudget", MonthlyTokenBudget: intPtr(100_000),
+	})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic", respUsage: openai.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.NoError(t, err)
+
+	usage, err := checker.Usage(ctx, account.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 15, usage, "the reservation's rough estimate must be reconciled down to the provider's actual usage")
+}
+
+// TestChatCompletion_TeamAndAccountQuotaTrackedIndependently verifies that a
+// team's and its member's budgets are separate counters - both get charged
+// for the same call, but under their own subject id, since a team and an
+// account draw down independent budgets rather than sharing one.
+func TestChatCompletion_TeamAndAccountQuotaTrackedIndependently(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Shared Budget Team", MonthlyTokenBudget: intPtr(100_000)})
+	require.NoError(t, err)
+	account, err := database.CreateAccount(ctx, &model.Account{
+		Email: "member@example.com", Username: "member", TeamID: &team.ID, MonthlyTokenBudget: intPtr(100_000),
+	})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic", respUsage: openai.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.NoError(t, err)
+
+	teamUsage, err := checker.Usage(ctx, team.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 15, teamUsage)
+
+	accountUsage, err := checker.Usage(ctx, account.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 15, accountUsage)
+}
+
+// TestChatCompletion_AccountQuotaExceededReleasesTeamReservation verifies
+// that when the team's budget has room but the account's own budget denies
+// the call, the team reservation made moments earlier is rolled back rather
+// than left charged for a call that never happened.
+func TestChatCompletion_AccountQuotaExceededReleasesTeamReservation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Roomy Team, Tiny Member", MonthlyTokenBudget: intPtr(100_000)})
+	require.NoError(t, err)
+	account, err := database.CreateAccount(ctx, &model.Account{
+		Email: "tinymember@example.com", Username: "tinymember", TeamID: &team.ID, MonthlyTokenBudget: intPtr(1),
+	})
+	require.NoError(t, err)
+
+	fake := &fakeProvider{name: "anthropic"}
+	checker := quota.NewChecker(memkv.New())
+	h := newHandlerWithQuotaPolicy(database, provider.Registry{"anthropic": fake}, checker, nil)
+
+	principal := &proxy.Principal{ID: account.ID, Type: model.IdentityAccount, OrgID: team.ID}
+	_, err = h.ChatCompletion(ctx, "req_test", principal, chatRequest("anthropic/claude-3-5-sonnet"))
+	require.Error(t, err)
+	assert.Equal(t, 0, fake.calls)
+
+	teamUsage, err := checker.Usage(ctx, team.ID)
+	require.NoError(t, err)
+	assert.Zero(t, teamUsage, "the team's reservation must be released when the account's own budget denies the call")
+}
+
 func TestChatCompletion_PolicyDenyBlocksCallAndReleasesQuotaReservation(t *testing.T) {
 	t.Parallel()
 

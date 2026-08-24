@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 
 	"github.com/benbjohnson/clock"
 	"github.com/hovanhoa/llmgateway/internal/db"
 	"github.com/hovanhoa/llmgateway/internal/db/migrations"
 	api "github.com/hovanhoa/llmgateway/internal/http"
+	"github.com/hovanhoa/llmgateway/internal/model"
 	"github.com/hovanhoa/llmgateway/internal/policy"
 	"github.com/hovanhoa/llmgateway/internal/quota"
 	"github.com/hovanhoa/llmgateway/pkg/core/apm"
+	"github.com/hovanhoa/llmgateway/pkg/core/auth"
 	"github.com/hovanhoa/llmgateway/pkg/core/log"
 	"github.com/hovanhoa/llmgateway/pkg/core/secrets"
 	"github.com/hovanhoa/llmgateway/pkg/driver/postgres"
@@ -55,12 +60,31 @@ func main() {
 		logger.Fatal("error up'ing database", log.Error(err))
 	}
 
+	// The session JWT signing key is generated fresh per process rather than
+	// loaded from configuration: a session token only needs to survive for
+	// the life of the process that issued it (a restart just means signing
+	// back in, same as an already-revoked API key would require). Running
+	// multiple replicas, each with their own key, would mean a session is
+	// only valid against the replica that issued it - swap this for a
+	// persisted key pair (see pkg/core/auth.FetchJWTKeys) before scaling
+	// this out horizontally.
+	jwtPrivateKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		logger.Fatal("unable to generate session JWT signing key", log.Error(err))
+	}
+	tokens := auth.NewTokenService[model.Identity](auth.Dependencies{
+		DB:            kvStore,
+		JWTPrivateKey: jwtPrivateKey,
+		JWTPublicKey:  &jwtPrivateKey.PublicKey,
+	})
+
 	// Create the API service with all of its dependencies
 	service := api.NewService(api.Dependencies{
 		DB:        database,
 		Providers: newProviderRegistry(),
 		Quota:     quota.NewChecker(kvStore),
 		Policy:    policy.DefaultChain(),
+		Tokens:    tokens,
 		Clock:     clock.New(),
 	})
 

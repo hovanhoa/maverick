@@ -1,11 +1,14 @@
-// Package quota implements per-team monthly token budgets for the LLM
-// proxy: a pre-call reservation against a fast Redis counter, and a
-// post-call reconciliation once the provider reports actual token usage.
+// Package quota implements monthly token budgets for the LLM proxy: a
+// pre-call reservation against a fast Redis counter, and a post-call
+// reconciliation once the provider reports actual token usage.
 //
-// Team/account/key/model are all plausible quota dimensions; this phase
-// implements exactly one - a per-team, calendar-month token budget - since
-// it composes naturally with the Phase 2 per-team model allowlist. Other
-// dimensions can reuse the same key-per-window pattern later.
+// Team, account, key, and model are all plausible quota dimensions. Team and
+// account budgets are both implemented, each tracked independently under its
+// own subject id (a team and an account reservation never share a window,
+// since Checker only ever combines its subjectID argument with the current
+// calendar month, and team/account ids come from disjoint encoding.
+// NewRandomIdentifier prefixes). Other dimensions can reuse the same
+// key-per-window pattern later.
 package quota
 
 import (
@@ -19,10 +22,11 @@ import (
 )
 
 // ErrExceeded is returned by Reserve when granting the request would push
-// the team over its monthly token budget.
+// the subject (team or account) over its monthly token budget.
 var ErrExceeded = errors.New("quota exceeded")
 
-// Checker enforces per-team monthly token budgets against a KVStore.
+// Checker enforces monthly token budgets against a KVStore, independently
+// per subject (a team id or an account id).
 type Checker struct {
 	kv driver.KVStore
 }
@@ -32,9 +36,9 @@ func NewChecker(kv driver.KVStore) *Checker {
 	return &Checker{kv: kv}
 }
 
-// windowKey is the counter key for a team's current calendar-month window.
-func windowKey(teamID string, now time.Time) string {
-	return fmt.Sprintf("quota:%s:%s", teamID, now.UTC().Format("2006-01"))
+// windowKey is the counter key for a subject's current calendar-month window.
+func windowKey(subjectID string, now time.Time) string {
+	return fmt.Sprintf("quota:%s:%s", subjectID, now.UTC().Format("2006-01"))
 }
 
 func parseCount(raw string) int {
@@ -48,12 +52,12 @@ func parseCount(raw string) int {
 	return n
 }
 
-// Reserve atomically adds estimate to the team's running total for the
-// current month and returns ErrExceeded (without applying the reservation)
-// if doing so would exceed budget. A nil budget means unlimited - no
-// reservation is made and Reserve always succeeds, matching the "empty
-// allowlist = unrestricted" convention used for the Phase 2 model
-// allowlist.
+// Reserve atomically adds estimate to subjectID's (a team or account id)
+// running total for the current month and returns ErrExceeded (without
+// applying the reservation) if doing so would exceed budget. A nil budget
+// means unlimited - no reservation is made and Reserve always succeeds,
+// matching the "empty allowlist = unrestricted" convention used for the
+// Phase 2 model allowlist.
 //
 // It returns the window key the reservation was made against, which the
 // caller must pass back to the matching Reconcile call unchanged - the two
@@ -65,8 +69,8 @@ func parseCount(raw string) int {
 //
 // A successful Reserve must eventually be balanced by a call to Reconcile
 // (with actual=0 to fully release it if the call never completed).
-func (c *Checker) Reserve(ctx context.Context, teamID string, budget *int, estimate int) (window string, err error) {
-	window = windowKey(teamID, time.Now())
+func (c *Checker) Reserve(ctx context.Context, subjectID string, budget *int, estimate int) (window string, err error) {
+	window = windowKey(subjectID, time.Now())
 	if budget == nil {
 		return window, nil
 	}
@@ -99,10 +103,10 @@ func (c *Checker) Reserve(ctx context.Context, teamID string, budget *int, estim
 //
 // budget must match whatever was passed to the Reserve call being
 // reconciled: a nil budget is a no-op, mirroring Reserve's "unlimited"
-// convention. Without this guard, a call for a nil-budget (unlimited) team
-// would still be reconciled into the same Redis counter Reserve never
-// touched, leaving a stale nonzero balance that would incorrectly count
-// against that team's budget if one is configured later.
+// convention. Without this guard, a call for a nil-budget (unlimited)
+// subject would still be reconciled into the same Redis counter Reserve
+// never touched, leaving a stale nonzero balance that would incorrectly
+// count against that subject's budget if one is configured later.
 func (c *Checker) Reconcile(ctx context.Context, window string, budget *int, estimate int, actual int) error {
 	if budget == nil {
 		return nil
@@ -127,9 +131,10 @@ func (c *Checker) Reconcile(ctx context.Context, window string, budget *int, est
 	return nil
 }
 
-// Usage returns the current month's running total for a team.
-func (c *Checker) Usage(ctx context.Context, teamID string) (int, error) {
-	found, v, err := c.kv.Get(ctx, windowKey(teamID, time.Now()))
+// Usage returns the current month's running total for a subject (a team or
+// account id).
+func (c *Checker) Usage(ctx context.Context, subjectID string) (int, error) {
+	found, v, err := c.kv.Get(ctx, windowKey(subjectID, time.Now()))
 	if err != nil {
 		return 0, errors.Wrap(err, "quota.Usage")
 	}

@@ -219,6 +219,14 @@ type Account {
     role: Role!
 
     """
+    Maximum total tokens (prompt + completion) this account's keys may use
+    per calendar month via the LLM proxy, on top of whatever budget the
+    account's team may also have. Null means unlimited - no budget has been
+    configured yet.
+    """
+    monthlyTokenBudget: Int
+
+    """
     Timestamp the account was created
     """
     createdAt: Time!
@@ -311,6 +319,13 @@ extend type Mutation {
     this. Requires the caller to be an OWNER or ADMIN of the account's team.
     """
     resetAccountPassword(id: ID!): AccountSecret!
+
+    """
+    Set or clear an account's monthly token budget. Provide
+    monthlyTokenBudget to set it, or clearMonthlyTokenBudget to remove the
+    limit. Requires the caller to be an OWNER or ADMIN of the account's team.
+    """
+    updateAccountQuota(id: ID!, monthlyTokenBudget: Int, clearMonthlyTokenBudget: Boolean): Account!
 }
 `, BuiltIn: false},
 	{Name: "../../schema/apikey.graphqls", Input: `"""

@@ -25,6 +25,11 @@ type Account struct {
 	TeamID *string `json:"teamId,omitempty"`
 	// Role governing what this account can manage
 	Role Role `json:"role"`
+	// Maximum total tokens (prompt + completion) this account's keys may use
+	// per calendar month via the LLM proxy, on top of whatever budget the
+	// account's team may also have. Null means unlimited - no budget has been
+	// configured yet.
+	MonthlyTokenBudget *int `json:"monthlyTokenBudget,omitempty"`
 	// Timestamp the account was created
 	CreatedAt time.Time `json:"createdAt"`
 	// Timestamp the account was last updated

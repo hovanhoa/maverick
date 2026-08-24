@@ -188,6 +188,13 @@ func (r *Resolver) deleteAccount(ctx context.Context, id string) (bool, error) {
 	return r.deps.Database.DeleteAccount(ctx, id)
 }
 
+func (r *Resolver) updateAccountQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Account, error) {
+	if err := requireOwnerOrAdminOfAccountsTeam(ctx, r, id); err != nil {
+		return nil, err
+	}
+	return r.deps.Database.UpdateAccountQuota(ctx, id, monthlyTokenBudget, clearMonthlyTokenBudget)
+}
+
 // requireOwnerOrAdminOfAccountsTeam requires the caller to be OWNER/ADMIN
 // of the target account's current team. An unaffiliated target (no team,
 // or not found - DeleteAccount/UpdateAccount on a missing id is a no-op

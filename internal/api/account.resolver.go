@@ -31,6 +31,11 @@ func (r *mutationResolver) ResetAccountPassword(ctx context.Context, id string) 
 	return r.resetAccountPassword(ctx, id)
 }
 
+// UpdateAccountQuota is the resolver for the updateAccountQuota field.
+func (r *mutationResolver) UpdateAccountQuota(ctx context.Context, id string, monthlyTokenBudget *int, clearMonthlyTokenBudget *bool) (*model.Account, error) {
+	return r.updateAccountQuota(ctx, id, monthlyTokenBudget, clearMonthlyTokenBudget)
+}
+
 // Accounts is the resolver for the accounts field.
 func (r *queryResolver) Accounts(ctx context.Context, teamID *string, limit *int, offset *int) (*model.AccountConnection, error) {
 	return r.listAccounts(ctx, teamID, limit, offset)

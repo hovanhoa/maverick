@@ -13,12 +13,12 @@ type LoginRequest struct {
 	Password string `json:"password" body:"password"`
 }
 
-// LoginResponse hands back an API key on successful login, which the caller
-// then uses exactly like any other API key - login is just a friendlier way
-// to obtain one than pasting a pre-issued key. Each successful login mints a
-// fresh key (plaintext API keys are never stored, so an existing key can't
-// be re-handed-out); old keys from previous logins stay valid until revoked
-// from the API Keys page.
+// LoginResponse hands back a session token on successful login, which the
+// caller then uses exactly like an API key - as an "Authorization: Bearer"
+// value against the GraphQL/proxy API. Unlike an API key, this is a
+// short-lived, revocable JWT (see pkg/core/auth.TokenService and
+// internal/authz.Authorizer, which accepts either credential form) rather
+// than a permanent api_key row - a login no longer mints a new API key.
 type LoginResponse struct {
 	Key     string        `json:"key"`
 	Account model.Account `json:"account"`
@@ -42,13 +42,18 @@ func (s *Service) login(ctx context.Context, req *http.HandlerRequest[LoginReque
 		return nil, http.NewError(http.StatusUnauthorized, "invalid username or password")
 	}
 
-	secret, err := s.deps.DB.CreateAPIKey(ctx, account.ID)
+	var teamID string
+	if account.TeamID != nil {
+		teamID = *account.TeamID
+	}
+
+	token, err := s.deps.Tokens.GenerateJWT(ctx, account.ID, account.Email, account.Username, teamID, "", model.IdentityAccount)
 	if err != nil {
 		return nil, http.FromError(err)
 	}
 
 	return http.HandlerResponseJSON(LoginResponse{
-		Key:     secret.Key,
+		Key:     string(token.Token),
 		Account: *account,
 	}), nil
 }

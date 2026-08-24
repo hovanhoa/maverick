@@ -13,6 +13,13 @@ var (
 		Help:      "Total number of proxy requests denied for exceeding a team's monthly token budget.",
 	}, []string{"team_id"})
 
+	accountQuotaDeniedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "llmgateway",
+		Subsystem: "quota",
+		Name:      "account_denied_total",
+		Help:      "Total number of proxy requests denied for exceeding an account's monthly token budget.",
+	}, []string{"account_id"})
+
 	// model is deliberately not a label here: it comes from the caller's
 	// raw request (proxy.resolve just splits "provider/model" - it never
 	// validates modelName against a known list, and a team with no
@@ -29,5 +36,5 @@ var (
 )
 
 func init() {
-	apm.DefineMetric(quotaDeniedTotal, streamDurationSeconds)
+	apm.DefineMetric(quotaDeniedTotal, accountQuotaDeniedTotal, streamDurationSeconds)
 }

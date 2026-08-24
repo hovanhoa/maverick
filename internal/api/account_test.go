@@ -714,3 +714,82 @@ func TestAccountResolver_ResetAccountPassword_NotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+func TestAccountResolver_UpdateAccountQuota_DeniedForMember(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	target, err := createTestAccount(mr, ctx, "quotatarget@example.com", "quotatarget", nil, nil)
+	require.NoError(t, err)
+
+	memberCtx := asPrincipal(ctx, target.ID, model.RoleMember, "")
+
+	budget := 1000
+	_, err = mr.UpdateAccountQuota(memberCtx, target.ID, &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestAccountResolver_UpdateAccountQuota_AllowedForAdmin(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	team, err := mr.CreateTeam(ctx, "quota-team")
+	require.NoError(t, err)
+
+	target, err := createTestAccount(mr, ctx, "quotamember@example.com", "quotamember", &team.ID, nil)
+	require.NoError(t, err)
+
+	admin, err := createTestAccount(mr, ctx, "quotaadmin@example.com", "quotaadmin", &team.ID, nil)
+	require.NoError(t, err)
+	adminCtx := asPrincipal(ctx, admin.ID, model.RoleAdmin, team.ID)
+
+	budget := 5000
+	updated, err := mr.UpdateAccountQuota(adminCtx, target.ID, &budget, nil)
+	require.NoError(t, err)
+	require.NotNil(t, updated.MonthlyTokenBudget)
+	assert.Equal(t, budget, *updated.MonthlyTokenBudget)
+}
+
+// TestAccountResolver_UpdateAccountQuota_DeniedForAdminOfAnotherTeam mirrors
+// the delete/reset-password RBAC rule: an ADMIN of one team cannot set the
+// quota of an account belonging to a different team.
+func TestAccountResolver_UpdateAccountQuota_DeniedForAdminOfAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	teamA, err := mr.CreateTeam(ctx, "quota-team-a")
+	require.NoError(t, err)
+	teamB, err := mr.CreateTeam(ctx, "quota-team-b")
+	require.NoError(t, err)
+
+	target, err := createTestAccount(mr, ctx, "target-in-b-for-quota@example.com", "targetinbforquota", &teamB.ID, nil)
+	require.NoError(t, err)
+
+	caller, err := createTestAccount(mr, ctx, "admin-of-a-for-quota@example.com", "adminofaforquota", &teamA.ID, nil)
+	require.NoError(t, err)
+	adminOfACtx := asPrincipal(ctx, caller.ID, model.RoleAdmin, teamA.ID)
+
+	budget := 1000
+	_, err = mr.UpdateAccountQuota(adminOfACtx, target.ID, &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestAccountResolver_UpdateAccountQuota_NotFound(t *testing.T) {
+	t.Parallel()
+
+	r, ctx := testResolver(t)
+	mr := &mutationResolver{r}
+
+	budget := 1000
+	_, err := mr.UpdateAccountQuota(ctx, "account_does_not_exist", &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}

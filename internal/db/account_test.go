@@ -165,6 +165,75 @@ func TestUpdateAccount_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "account not found")
 }
 
+func TestUpdateAccountQuota(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "quota@example.com", Username: "quotauser"})
+	require.NoError(t, err)
+	assert.Nil(t, account.MonthlyTokenBudget, "new accounts start unlimited")
+
+	budget := 1_000_000
+	updated, err := database.UpdateAccountQuota(ctx, account.ID, &budget, nil)
+	require.NoError(t, err)
+	require.NotNil(t, updated.MonthlyTokenBudget)
+	assert.Equal(t, budget, *updated.MonthlyTokenBudget)
+
+	fetched, err := database.GetAccountByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.MonthlyTokenBudget)
+	assert.Equal(t, budget, *fetched.MonthlyTokenBudget)
+
+	clear := true
+	cleared, err := database.UpdateAccountQuota(ctx, account.ID, nil, &clear)
+	require.NoError(t, err)
+	assert.Nil(t, cleared.MonthlyTokenBudget)
+}
+
+func TestUpdateAccountQuota_RequiresOneField(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "quota2@example.com", Username: "quotauser2"})
+	require.NoError(t, err)
+
+	_, err = database.UpdateAccountQuota(ctx, account.ID, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one of")
+}
+
+func TestUpdateAccountQuota_RejectsSettingAndClearingTogether(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	account, err := database.CreateAccount(ctx, &model.Account{Email: "quota3@example.com", Username: "quotauser3"})
+	require.NoError(t, err)
+
+	budget := 100
+	clear := true
+	_, err = database.UpdateAccountQuota(ctx, account.ID, &budget, &clear)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot set monthlyTokenBudget and clearMonthlyTokenBudget")
+}
+
+func TestUpdateAccountQuota_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	budget := 100
+	_, err := database.UpdateAccountQuota(ctx, "account_missing", &budget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "account not found")
+}
+
 // TestDeleteAccount_NotFound returns false without error.
 func TestDeleteAccount_NotFound(t *testing.T) {
 	t.Parallel()

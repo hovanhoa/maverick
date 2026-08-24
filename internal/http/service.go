@@ -9,6 +9,7 @@ import (
 	"github.com/hovanhoa/llmgateway/internal/provider"
 	"github.com/hovanhoa/llmgateway/internal/proxy"
 	"github.com/hovanhoa/llmgateway/internal/quota"
+	"github.com/hovanhoa/llmgateway/pkg/core/auth"
 	"github.com/hovanhoa/llmgateway/pkg/core/http"
 
 	"github.com/benbjohnson/clock"
@@ -36,6 +37,11 @@ type Dependencies struct {
 	// Policy is the content policy chain run on every proxy request before
 	// it reaches a provider. Nil skips policy checks entirely.
 	Policy *policy.Chain
+
+	// Tokens issues and verifies the short-lived session JWTs POST /login
+	// hands out, as an alternative to a permanent API key for signing in to
+	// the web console.
+	Tokens *auth.TokenService[model.Identity]
 
 	Clock clock.Clock
 }
@@ -134,7 +140,7 @@ func (s *Service) setupService() {
 	s.Service.Router().GET("/ping", http.HandleAPIResponse(s.ping))
 	s.Service.Router().POST("/login", http.HandleAPIResponse(s.login))
 
-	authorizer := authz.New(authz.Dependencies{Database: s.deps.DB})
+	authorizer := authz.New(authz.Dependencies{Database: s.deps.DB, Tokens: s.deps.Tokens})
 
 	// Set up GraphQL API
 	api.
