@@ -185,6 +185,11 @@ func GetMigrations() []MigrationEntry {
 			Name:      "Add account_avatar table",
 			Migration: NewSQLFileMigration("00006_account_avatar_table"),
 		},
+		{
+			Index:     7,
+			Name:      "Add unique index on account username",
+			Migration: NewSQLFileMigration("00007_account_username_unique"),
+		},
 	}
 }
 

@@ -34,6 +34,12 @@ func (db *Database) CreateAccount(ctx context.Context, account *model.Account) (
 		}
 	}
 
+	if existing, err := db.GetAccountByUsername(ctx, account.Username); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return nil, errors.New("username %q is already taken", account.Username)
+	}
+
 	now := time.Now().UTC()
 	account.CreatedAt = now
 	account.UpdatedAt = now
@@ -86,7 +92,12 @@ func (db *Database) UpdateAccount(ctx context.Context, id string, email *string,
 	if email != nil {
 		existing.Email = *email
 	}
-	if username != nil {
+	if username != nil && *username != existing.Username {
+		if conflict, err := db.GetAccountByUsername(ctx, *username); err != nil {
+			return nil, err
+		} else if conflict != nil {
+			return nil, errors.New("username %q is already taken", *username)
+		}
 		existing.Username = *username
 	}
 	if name != nil {
@@ -216,6 +227,14 @@ func (db *Database) CountAccounts(ctx context.Context, predicate func(stmt sq.Se
 func (db *Database) GetAccountByID(ctx context.Context, id string) (*model.Account, error) {
 	return db.GetAccount(ctx, func(stmt sq.SelectBuilder) sq.SelectBuilder {
 		return stmt.Where(sq.Eq{"id": id})
+	})
+}
+
+// GetAccountByUsername returns an account by username. A nil account and
+// nil error means not found.
+func (db *Database) GetAccountByUsername(ctx context.Context, username string) (*model.Account, error) {
+	return db.GetAccount(ctx, func(stmt sq.SelectBuilder) sq.SelectBuilder {
+		return stmt.Where(sq.Expr("account->>'username' = ?", username))
 	})
 }
 
