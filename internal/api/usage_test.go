@@ -127,7 +127,7 @@ func TestUsageResolver_TeamUsageByAccount_AdminAllowed(t *testing.T) {
 
 	byAccount := map[string]model.AccountUsage{}
 	for _, row := range rows {
-		byAccount[row.AccountID] = row
+		byAccount[*row.AccountID] = row
 	}
 	assert.InDelta(t, 1.00, byAccount[owner.ID].CostUsd, 0.0001)
 	assert.InDelta(t, 2.00, byAccount[member.ID].CostUsd, 0.0001)

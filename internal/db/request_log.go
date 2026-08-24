@@ -139,13 +139,15 @@ func (db *Database) CountRequestLogs(ctx context.Context, filter RequestLogFilte
 }
 
 // scanRequestLog scans one row in requestLogColumns order into a
-// model.RequestLog, translating the nullable columns (provider/model,
-// token/cost figures, error detail, response body - all absent when a call
-// never reached a provider) via sql.Null* intermediates.
+// model.RequestLog, translating the nullable columns (account_id - cleared
+// rather than cascaded away if the account is later deleted -
+// provider/model, token/cost figures, error detail, response body - all
+// absent when a call never reached a provider) via sql.Null* intermediates.
 func scanRequestLog(row interface{ Scan(...any) error }) (model.RequestLog, error) {
 	var (
 		entry                                    model.RequestLog
 		status                                   string
+		accountID                                sql.NullString
 		provider, modelName, errorKind, errorMsg sql.NullString
 		responseBody                             sql.NullString
 		promptTokens, completionTokens           sql.NullInt64
@@ -154,7 +156,7 @@ func scanRequestLog(row interface{ Scan(...any) error }) (model.RequestLog, erro
 	)
 
 	if err := row.Scan(
-		&entry.ID, &entry.RequestID, &entry.AccountID, &entry.TeamID, &provider, &modelName,
+		&entry.ID, &entry.RequestID, &accountID, &entry.TeamID, &provider, &modelName,
 		&entry.RequestedModel, &status, &errorKind, &errorMsg, &entry.Stream,
 		&entry.RequestBody, &responseBody, &promptTokens, &completionTokens,
 		&totalTokens, &costUSD, &entry.LatencyMs, &entry.CreatedAt,
@@ -163,6 +165,9 @@ func scanRequestLog(row interface{ Scan(...any) error }) (model.RequestLog, erro
 	}
 
 	entry.Status = model.RequestLogStatus(status)
+	if accountID.Valid {
+		entry.AccountID = &accountID.String
+	}
 	if provider.Valid {
 		entry.Provider = &provider.String
 	}

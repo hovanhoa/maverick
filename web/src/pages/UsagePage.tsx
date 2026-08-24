@@ -190,7 +190,8 @@ export function UsagePage() {
     load();
   }, [load]);
 
-  const accountLabel = (accountId: string) => accounts.find((a) => a.id === accountId)?.email ?? accountId;
+  const accountLabel = (accountId: string | null) =>
+    accountId ? (accounts.find((a) => a.id === accountId)?.email ?? accountId) : 'Deleted account';
 
   const filteredByModel = byModel.filter((row) => {
     const q = modelFilter.trim().toLowerCase();
@@ -322,7 +323,7 @@ export function UsagePage() {
           {filteredByAccount.length > 0 ? (
             <BarList
               items={filteredByAccount.map((row) => ({
-                key: row.accountId,
+                key: row.accountId ?? 'deleted-account',
                 label: accountLabel(row.accountId),
                 value: row.costUsd,
                 meta: `${formatNumber(row.requestCount)} req · ${formatNumber(row.totalTokens)} tokens`

@@ -256,9 +256,10 @@ func (h *Handler) recordRequestLog(ctx context.Context, requestID string, princi
 		return
 	}
 
+	accountID := principal.ID
 	entry := &model.RequestLog{
 		RequestID:      requestID,
-		AccountID:      principal.ID,
+		AccountID:      &accountID,
 		RequestedModel: req.Model,
 		Status:         model.RequestLogStatusSuccess,
 		Stream:         req.Stream,

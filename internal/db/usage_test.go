@@ -94,6 +94,54 @@ func TestDeleteAccount_WithRecordedUsageEvent(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// TestTeamUsageByAccount_SurvivesDeletedMember verifies that a member who
+// generated usage and was later removed from the team doesn't break the
+// per-member breakdown for everyone else - their usage_event rows keep
+// team_id (only account_id is cleared), so they still count toward the
+// team's breakdown, just no longer attributable to a specific account.
+func TestTeamUsageByAccount_SurvivesDeletedMember(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := testdb.NewTestDatabase(ctx, t)
+
+	team, err := database.CreateTeam(ctx, &model.Team{Name: "Team with a departed member"})
+	require.NoError(t, err)
+	staying, err := database.CreateAccount(ctx, &model.Account{Email: "staying@example.com", Username: "staying", TeamID: &team.ID})
+	require.NoError(t, err)
+	leaving, err := database.CreateAccount(ctx, &model.Account{Email: "leaving@example.com", Username: "leaving", TeamID: &team.ID})
+	require.NoError(t, err)
+
+	require.NoError(t, database.RecordUsageEvent(ctx, &model.UsageEvent{
+		RequestID: "req_staying", AccountID: staying.ID, TeamID: &team.ID,
+		Provider: "anthropic", Model: "claude-3-5-sonnet", TotalTokens: 15, CostUSD: 1.00,
+	}))
+	require.NoError(t, database.RecordUsageEvent(ctx, &model.UsageEvent{
+		RequestID: "req_leaving", AccountID: leaving.ID, TeamID: &team.ID,
+		Provider: "anthropic", Model: "claude-3-5-sonnet", TotalTokens: 15, CostUSD: 2.00,
+	}))
+
+	ok, err := database.DeleteAccount(ctx, leaving.ID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	rows, err := database.TeamUsageByAccount(ctx, team.ID, time.Now().Add(-time.Hour))
+	require.NoError(t, err, "a departed member's usage must not break the breakdown for the rest of the team")
+	require.Len(t, rows, 2)
+
+	var sawDeletedMember bool
+	for _, row := range rows {
+		if row.AccountID == nil {
+			sawDeletedMember = true
+			assert.InDelta(t, 2.00, row.CostUSD, 0.0001, "the departed member's spend must still count toward the team total")
+			continue
+		}
+		assert.Equal(t, staying.ID, *row.AccountID)
+		assert.InDelta(t, 1.00, row.CostUSD, 0.0001)
+	}
+	assert.True(t, sawDeletedMember)
+}
+
 // TestDeleteTeam_WithRecordedUsageEvent mirrors
 // TestDeleteAccount_WithRecordedUsageEvent for the team_id FK.
 func TestDeleteTeam_WithRecordedUsageEvent(t *testing.T) {
@@ -194,7 +242,7 @@ func TestTeamUsageByAccount(t *testing.T) {
 
 	byAccount := map[string]db.AccountUsageSummary{}
 	for _, row := range rows {
-		byAccount[row.AccountID] = row
+		byAccount[*row.AccountID] = row
 	}
 	require.Contains(t, byAccount, accountA.ID)
 	require.Contains(t, byAccount, accountB.ID)

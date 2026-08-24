@@ -74,7 +74,8 @@ export interface UsageSummary {
 }
 
 export interface AccountUsage extends UsageSummary {
-  accountId: string;
+  /** Null groups together usage from any account(s) since deleted. */
+  accountId: string | null;
 }
 
 export interface ModelUsage extends UsageSummary {
@@ -113,7 +114,8 @@ export type RequestLogStatus = 'SUCCESS' | 'ERROR';
 export interface RequestLog {
   id: string;
   requestId: string;
-  accountId: string;
+  /** Null if the account that made this call has since been deleted. */
+  accountId: string | null;
   teamId: string | null;
   provider: string | null;
   model: string | null;

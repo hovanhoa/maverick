@@ -422,7 +422,12 @@ calls.
 type RequestLog {
     id: ID!
     requestId: String!
-    accountId: ID!
+    """
+    The account that made this call. Null if that account has since been
+    deleted - the row itself outlives the account it references, since this
+    is an audit trail rather than a live reference.
+    """
+    accountId: ID
     teamId: ID
     provider: String
     model: String
@@ -799,7 +804,13 @@ AccountUsage is one account's UsageSummary, e.g. a row in a team's
 per-member usage breakdown.
 """
 type AccountUsage {
-    accountId: ID!
+    """
+    Null groups together usage from any account(s) since deleted - once an
+    account is gone, usage_event.account_id is cleared rather than deleted
+    along with it, but distinct deleted accounts can no longer be told apart
+    from each other.
+    """
+    accountId: ID
     requestCount: Int!
     promptTokens: Int!
     completionTokens: Int!

@@ -28,12 +28,12 @@ func seedTeamWithTwoMembersRequestLogs(t *testing.T, ctx context.Context, r *Res
 	require.NoError(t, err)
 
 	require.NoError(t, r.deps.Database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_owner", AccountID: owner.ID, TeamID: &team.ID,
+		RequestID: "req_owner", AccountID: &owner.ID, TeamID: &team.ID,
 		RequestedModel: "anthropic/claude-3-5-sonnet", Status: model.RequestLogStatusSuccess,
 		RequestBody: `{"model":"anthropic/claude-3-5-sonnet"}`, LatencyMs: 10,
 	}))
 	require.NoError(t, r.deps.Database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_member", AccountID: member.ID, TeamID: &team.ID,
+		RequestID: "req_member", AccountID: &member.ID, TeamID: &team.ID,
 		RequestedModel: "openai/gpt-4o", Status: model.RequestLogStatusSuccess,
 		RequestBody: `{"model":"openai/gpt-4o"}`, LatencyMs: 10,
 	}))
@@ -93,7 +93,7 @@ func TestRequestLogResolver_TeamRequestLogs_AdminAllowed(t *testing.T) {
 
 	byAccount := map[string]model.RequestLog{}
 	for _, entry := range conn.Items {
-		byAccount[entry.AccountID] = entry
+		byAccount[*entry.AccountID] = entry
 	}
 	assert.Contains(t, byAccount, owner.ID)
 	assert.Contains(t, byAccount, member.ID)

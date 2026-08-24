@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -128,9 +129,12 @@ func (db *Database) SumGlobalUsage(ctx context.Context, since time.Time) (UsageS
 }
 
 // AccountUsageSummary is a UsageSummary attributed to one account, e.g. one
-// row of a team's per-member usage breakdown.
+// row of a team's per-member usage breakdown. A nil AccountID groups
+// together usage from any account(s) since deleted - usage_event.account_id
+// is cleared, not cascaded away, when the account it names is deleted, but
+// once cleared distinct deleted accounts can no longer be told apart.
 type AccountUsageSummary struct {
-	AccountID string
+	AccountID *string
 	UsageSummary
 }
 
@@ -160,8 +164,12 @@ func (db *Database) TeamUsageByAccount(ctx context.Context, teamID string, since
 	var out []AccountUsageSummary
 	for rows.Next() {
 		var row AccountUsageSummary
-		if err := rows.Scan(&row.AccountID, &row.RequestCount, &row.PromptTokens, &row.CompletionTokens, &row.TotalTokens, &row.CostUSD); err != nil {
+		var accountID sql.NullString
+		if err := rows.Scan(&accountID, &row.RequestCount, &row.PromptTokens, &row.CompletionTokens, &row.TotalTokens, &row.CostUSD); err != nil {
 			return nil, errors.Wrap(err, "scan team usage by account row")
+		}
+		if accountID.Valid {
+			row.AccountID = &accountID.String
 		}
 		out = append(out, row)
 	}

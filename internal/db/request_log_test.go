@@ -25,14 +25,14 @@ func TestInsertRequestLog_AndListRequestLogs(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_success", AccountID: account.ID, TeamID: &team.ID,
+		RequestID: "req_success", AccountID: &account.ID, TeamID: &team.ID,
 		Provider: ptr("anthropic"), Model: ptr("claude-3-5-sonnet"), RequestedModel: "anthropic/claude-3-5-sonnet",
 		Status: model.RequestLogStatusSuccess, RequestBody: `{"model":"anthropic/claude-3-5-sonnet"}`,
 		ResponseBody: ptr(`{"id":"resp_1"}`), PromptTokens: ptr(10), CompletionTokens: ptr(5), TotalTokens: ptr(15),
 		CostUsd: ptr(0.001), LatencyMs: 120,
 	}))
 	require.NoError(t, database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_denied", AccountID: account.ID, TeamID: &team.ID,
+		RequestID: "req_denied", AccountID: &account.ID, TeamID: &team.ID,
 		RequestedModel: "bogus", Status: model.RequestLogStatusError,
 		ErrorKind: ptr("invalid_request"), ErrorMessage: ptr(`model must be formatted as "provider/model"`),
 		RequestBody: `{"model":"bogus"}`, LatencyMs: 1,
@@ -78,12 +78,12 @@ func TestListRequestLogs_ScopedByAccountAndPaginated(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		require.NoError(t, database.InsertRequestLog(ctx, &model.RequestLog{
-			RequestID: "req_a", AccountID: accountA.ID, RequestedModel: "openai/gpt-4o",
+			RequestID: "req_a", AccountID: &accountA.ID, RequestedModel: "openai/gpt-4o",
 			Status: model.RequestLogStatusSuccess, RequestBody: "{}", LatencyMs: 1,
 		}))
 	}
 	require.NoError(t, database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_b", AccountID: accountB.ID, RequestedModel: "openai/gpt-4o",
+		RequestID: "req_b", AccountID: &accountB.ID, RequestedModel: "openai/gpt-4o",
 		Status: model.RequestLogStatusSuccess, RequestBody: "{}", LatencyMs: 1,
 	}))
 
@@ -116,13 +116,22 @@ func TestDeleteAccount_WithRecordedRequestLog(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_del", AccountID: account.ID, RequestedModel: "openai/gpt-4o",
+		RequestID: "req_del", AccountID: &account.ID, RequestedModel: "openai/gpt-4o",
 		Status: model.RequestLogStatusSuccess, RequestBody: "{}", LatencyMs: 1,
 	}))
 
 	ok, err := database.DeleteAccount(ctx, account.ID)
 	require.NoError(t, err, "deleting an account must not fail just because it has a recorded request log")
 	assert.True(t, ok)
+
+	// The row must remain readable - account_id is cleared (ON DELETE SET
+	// NULL), not scanned as an error - since request_log is an audit trail
+	// that outlives the account it references.
+	logs, total, err := database.ListRequestLogs(ctx, db.RequestLogFilter{}, 20, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, logs, 1)
+	assert.Nil(t, logs[0].AccountID)
 }
 
 // TestDeleteTeam_WithRecordedRequestLog mirrors
@@ -139,7 +148,7 @@ func TestDeleteTeam_WithRecordedRequestLog(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, database.InsertRequestLog(ctx, &model.RequestLog{
-		RequestID: "req_del_team", AccountID: account.ID, TeamID: &team.ID, RequestedModel: "openai/gpt-4o",
+		RequestID: "req_del_team", AccountID: &account.ID, TeamID: &team.ID, RequestedModel: "openai/gpt-4o",
 		Status: model.RequestLogStatusSuccess, RequestBody: "{}", LatencyMs: 1,
 	}))
 

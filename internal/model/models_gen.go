@@ -59,7 +59,11 @@ type AccountSecret struct {
 // AccountUsage is one account's UsageSummary, e.g. a row in a team's
 // per-member usage breakdown.
 type AccountUsage struct {
-	AccountID        string  `json:"accountId"`
+	// Null groups together usage from any account(s) since deleted - once an
+	// account is gone, usage_event.account_id is cleared rather than deleted
+	// along with it, but distinct deleted accounts can no longer be told apart
+	// from each other.
+	AccountID        *string `json:"accountId,omitempty"`
 	RequestCount     int     `json:"requestCount"`
 	PromptTokens     int     `json:"promptTokens"`
 	CompletionTokens int     `json:"completionTokens"`
@@ -122,9 +126,12 @@ type ModelUsage struct {
 // to UsageSummary/usage_event, which only records completed successful
 // calls.
 type RequestLog struct {
-	ID        string  `json:"id"`
-	RequestID string  `json:"requestId"`
-	AccountID string  `json:"accountId"`
+	ID        string `json:"id"`
+	RequestID string `json:"requestId"`
+	// The account that made this call. Null if that account has since been
+	// deleted - the row itself outlives the account it references, since this
+	// is an audit trail rather than a live reference.
+	AccountID *string `json:"accountId,omitempty"`
 	TeamID    *string `json:"teamId,omitempty"`
 	Provider  *string `json:"provider,omitempty"`
 	Model     *string `json:"model,omitempty"`

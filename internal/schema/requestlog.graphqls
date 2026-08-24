@@ -19,7 +19,12 @@ calls.
 type RequestLog {
     id: ID!
     requestId: String!
-    accountId: ID!
+    """
+    The account that made this call. Null if that account has since been
+    deleted - the row itself outlives the account it references, since this
+    is an audit trail rather than a live reference.
+    """
+    accountId: ID
     teamId: ID
     provider: String
     model: String
